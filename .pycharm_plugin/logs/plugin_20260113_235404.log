@@ -1,0 +1,13 @@
+[2026-01-13 23:54:04.381] [INFO] Using logs directory: /home/lps/work/workspace-charm/entity-resolution-docs/.pycharm_plugin/logs
+[2026-01-13 23:54:04.385] [INFO] ================================================================================
+[2026-01-13 23:54:04.385] [INFO] Learning Flow Visualizer Plugin Started
+[2026-01-13 23:54:04.385] [INFO] Version: 1.0.165
+[2026-01-13 23:54:04.385] [INFO] Project: entity-resolution-docs
+[2026-01-13 23:54:04.385] [INFO] Log file: /home/lps/work/workspace-charm/entity-resolution-docs/.pycharm_plugin/logs/plugin_20260113_235404.log
+[2026-01-13 23:54:04.385] [INFO] ================================================================================
+[2026-01-13 23:54:04.385] [INFO] Project opened: entity-resolution-docs
+[2026-01-13 23:54:04.385] [INFO] Project base path: /home/lps/work/workspace-charm/entity-resolution-docs
+[2026-01-13 23:54:05.848] [INFO] Logger already initialized for project: entity-resolution-docs
+[2026-01-13 23:54:05.848] [INFO] Plugin startup activity started for project: entity-resolution-docs
+[2026-01-13 23:54:05.848] [WARN] Tool window 'SequenceDiagramPython' not found
+[2026-01-13 23:54:05.848] [INFO] Plugin startup completed successfully
