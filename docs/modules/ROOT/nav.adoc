@@ -1,6 +1,6 @@
 * xref:index.adoc[Home]
 
-* xref:ERSArchitecture/index.adoc[ERS Architecture]
+* xref:GettingStarted.adoc[Getting Started]
 
 * ERS
 ** xref:ERSArchitecture/index.adoc[Architecture]

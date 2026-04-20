@@ -21,6 +21,11 @@ ERSys is composed of three main components:
 
 The following sections describe each documentation area in detail.
 
+== xref:GettingStarted.adoc[Getting Started]
+
+Installation and initial setup guide for operators deploying ERSys.
+Covers prerequisites, environment preparation, and the standard `make up` workflow.
+
 == ERS
 
 Documentation of the Entity Resolution Service — its architecture, supported use cases, and REST API.

@@ -1,0 +1,224 @@
+= Getting Started
+:description: How to run the full ERSys stack locally — ERS, ERE, and the Curation App.
+
+This guide walks through running all three ERSys components on a single machine for local development and evaluation.
+By the end you will have the Entity Resolution Service, the Basic ERE, and the Curation Web Application running and communicating with each other.
+
+== Prerequisites
+
+The following tools must be installed before you begin:
+
+[cols="2,3"]
+|===
+| Tool | Notes
+
+| https://docs.docker.com/get-docker/[Docker + Docker Compose]
+| Used to run ERS and ERE. Docker Desktop is recommended (required on WSL2 for `host.docker.internal` support).
+
+| https://nodejs.org[Node.js 22+ and npm 10+]
+| Required for the Curation Web Application.
+
+| https://www.gnu.org/software/make/[make]
+| Used by both ERS and ERE for common operations.
+
+|===
+
+== Architecture Overview
+
+The three components communicate as follows:
+
+[source]
+----
+Browser
+  └─► Curation App  (localhost:5173)
+        └─► Curation API  (localhost:8000)
+              ├─► FerretDB / PostgreSQL  (persistence)
+              └─► Redis  (localhost:6379)
+                    ├─► ERS API  (localhost:8001)
+                    └─► ERE worker
+                          └─► DuckDB  (entity clusters)
+----
+
+ERS owns the Redis instance.
+The ERE worker connects to it via `host.docker.internal:6379`, which Docker resolves to the host machine, reaching the ERS Redis container through its exposed port.
+
+== Step 1 — Start ERS
+
+[source,bash]
+----
+cd /path/to/ers
+cp infra/.env.example infra/.env
+----
+
+Open `infra/.env` and make two changes:
+
+[source,bash]
+----
+USE_MOCK_SERVICES=false   # <1>
+SEED_DB=true              # <2>
+----
+<1> Enables real ERE integration. The default (`true`) bypasses the ERE entirely.
+<2> Seeds the database with demo data on first startup. Safe to revert after the first run.
+
+Then start the stack:
+
+[source,bash]
+----
+make up
+make logs
+----
+
+Wait until the logs show both `curation-api` and `ers-api` accepting connections, then verify:
+
+[source,bash]
+----
+curl http://localhost:8000/api/v1/health
+curl http://localhost:8001/api/v1/health
+----
+
+Both should return `{"status":"ok"}`.
+
+== Step 2 — Start ERE
+
+[source,bash]
+----
+cd /path/to/ere-basic
+cp infra/.env.example infra/.env
+----
+
+Open `infra/.env` and change the Redis host so the ERE connects to ERS's Redis instead of its own:
+
+[source,bash]
+----
+REDIS_HOST=host.docker.internal   # <1>
+----
+<1> `host.docker.internal` resolves to your machine's host from inside the Docker container, reaching ERS's Redis on port 6379. This requires Docker Desktop.
+
+Start only the ERE worker, skipping the ERE's own Redis:
+
+[source,bash]
+----
+docker compose -f infra/compose.dev.yaml --env-file infra/.env up --no-deps ere -d
+----
+
+Confirm the ERE is running and connected:
+
+[source,bash]
+----
+docker compose -f infra/compose.dev.yaml --env-file infra/.env logs ere
+----
+
+You should see a log line indicating the ERE is listening on `ere_requests`.
+
+== Step 3 — Start the Curation App
+
+[source,bash]
+----
+cd /path/to/ers-webapp
+cp infra/.env.example infra/.env
+----
+
+Set the API address in `infra/.env`:
+
+[source,bash]
+----
+API_BACKEND_URL=http://localhost:8000
+----
+
+Install dependencies and start the development server:
+
+[source,bash]
+----
+npm install
+npm run dev
+----
+
+The application is available at http://localhost:5173.
+Log in with the default credentials: `admin@ers.local` / `changeme`.
+
+== Step 4 — Verify the Full Stack
+
+Open http://localhost:5173 in your browser and log in.
+If `SEED_DB=true` was set in Step 1, the Decisions view will show pre-loaded entity resolution results.
+
+To send a test resolution request directly to the ERS API:
+
+[source,bash]
+----
+curl -s http://localhost:8001/api/v1/health | python3 -m json.tool
+----
+
+To confirm the ERE is processing requests, check its logs after any resolution activity:
+
+[source,bash]
+----
+docker logs ere --tail 20
+----
+
+== Configuration Reference
+
+The following variables must be consistent across components for the stack to communicate correctly.
+
+[cols="2,2,2,3"]
+|===
+| Variable | ERS (`infra/.env`) | ERE (`infra/.env`) | Description
+
+| `REDIS_HOST`
+| `localhost` (overridden to `redis` inside Docker)
+| `host.docker.internal`
+| ERE must point at the host to reach ERS's Redis.
+
+| `REDIS_PORT`
+| `6379`
+| `6379`
+| Must match.
+
+| `REDIS_PASSWORD`
+| `changeme`
+| `changeme`
+| Must match.
+
+| `REQUEST_QUEUE`
+| (consumed by ERS)
+| `ere_requests`
+| The queue name ERS publishes to and ERE reads from.
+
+| `RESPONSE_QUEUE`
+| (consumed by ERS)
+| `ere_responses`
+| The queue name ERE publishes to and ERS reads from.
+
+| `USE_MOCK_SERVICES`
+| `false`
+| —
+| Must be `false` for real ERE integration.
+
+| `API_BACKEND_URL`
+| —
+| —
+| Set in the Curation App (`infra/.env`) to `http://localhost:8000`.
+
+|===
+
+== Troubleshooting
+
+[cols="3,4"]
+|===
+| Symptom | Fix
+
+| ERE logs show Redis connection refused
+| Confirm ERS is running (`make logs` in ERS repo). Confirm `REDIS_HOST=host.docker.internal` in ERE's `.env`. Docker Desktop must be running.
+
+| Curation App shows no data
+| Set `SEED_DB=true` in ERS `infra/.env`, then restart: `make down && make up`.
+
+| Resolution requests are never answered by ERE
+| Check `USE_MOCK_SERVICES=false` in ERS `infra/.env`. Check ERE logs with `docker logs ere`.
+
+| Port 6379 already in use
+| The ERE's own Redis may be running. Stop it: `docker compose -f infra/compose.dev.yaml down` in the ERE repo, then re-run with `--no-deps`.
+
+| `host.docker.internal` not resolving
+| Docker Desktop must be running (not plain Docker Engine). Verify with `docker run --rm alpine ping -c1 host.docker.internal`.
+
+|===
