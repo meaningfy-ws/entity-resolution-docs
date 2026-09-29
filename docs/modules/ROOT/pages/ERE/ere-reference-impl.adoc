@@ -28,7 +28,7 @@ clusters incrementally as they arrive.
 Each incoming mention is scored against existing mentions using probabilistic record linkage;
 it is assigned to the best-matching cluster when similarity meets a configurable threshold,
 or placed in a new singleton cluster when no sufficiently similar candidate exists.
-The service reads requests from a Redis queue, processes them through a five-step pipeline,
+The service reads requests from a Redis queue in batches, processes each request through a five-step pipeline,
 and publishes clustering outcomes back to a response queue — storing mention data and similarity
 scores in an embedded DuckDB database with configurable RDF/Turtle field extraction.
 
@@ -55,8 +55,10 @@ re-submitting the same request produces the same outcome without duplicating sta
 === Step 2 — Blocking
 
 Before comparing the new mention against all known mentions, the service applies
-*blocking rules* to reduce the candidate set. Only mentions that share a
-common attribute (for example, the same `country_code`) are considered for comparison.
+*blocking rules* to reduce the candidate set. Only mentions from the same country
+(`country_code`) whose normalised legal names are similar (Jaro-Winkler similarity of
+at least 0.8) are considered for comparison. The normalised name (lower case, accents
+removed, letters and digits only) is stored with each mention, so it is computed once.
 
 Blocking prevents unnecessary computation and keeps latency bounded as the mention
 store grows.
@@ -64,48 +66,50 @@ store grows.
 === Step 3 — Similarity Scoring
 
 The new mention is compared against each blocked candidate using
-https://moj-analytical-services.github.io/splink/[Splink], a probabilistic record
-linkage library. Splink implements the Fellegi-Sunter model, which computes a
-*match probability* for each candidate pair based on agreement across multiple fields
-(`legal_name`, `country_code`, `nuts_code`, `post_code`, etc.).
+https://moj-analytical-services.github.io/splink/[Splink], a probabilistic record linkage library. Splink implements the Fellegi-Sunter
+model, which computes a *match probability* for each candidate pair based on agreement
+across multiple fields (`legal_name`, `nuts_code`, `post_code`, `post_name`,
+`thoroughfare`). The country is not compared: every scored pair already shares it
+through blocking.
 
-All pairwise scores are persisted as mention-link records, *regardless of whether
-they meet the clustering threshold*. Scores below threshold are still used later
-when generating the candidate list for the response.
+All pairwise scores of the request are used to build the candidate list for the
+response, *regardless of whether they meet the clustering threshold*. Only the best
+scores of each mention (up to the top-N, default: 100) are persisted as mention-link records.
 
 ==== Cold Start and Learned Priors
 
 The Splink model requires initial probability estimates (*m/u priors*) for each field.
 The basic ERE ships with hand-tuned priors that allow meaningful scoring from the
-first request, without any training data. Once 50 mentions have been processed, the
-service triggers a background *Expectation-Maximisation* (EM) training pass to refine
-these priors automatically. Subsequent requests benefit from the improved estimates.
+first request, without any training data. When the number of stored mentions reaches a
+configurable threshold (default: 200), the service runs one *Expectation-Maximisation* (EM)
+training pass to refine these priors. The trained model is saved and reloaded on
+restart; it is not retrained, and scores already stored are not recomputed.
 
 === Step 4 — Cluster Assignment
 
 Once similarity scores are available, the service applies a *greedy* assignment rule:
 
 . Find the candidate mention with the highest similarity score.
-. If that score meets or exceeds the configured threshold (default: 0.20), assign the
+. If that score meets or exceeds the configured threshold (default: 0.7), assign the
   new mention to the same cluster as that candidate.
 . If no candidate meets the threshold, create a new *singleton cluster* whose identifier
   is derived deterministically from the new mention's identifier.
 
 [NOTE]
 ====
-The reference default for the clustering threshold is `0.20`, whereas the
-xref:ERS-ERE-Contract/supplement.adoc#configuration[contract supplement] recommends
-keeping `confidence_threshold` near zero (or unused) so that resolution responses are
-not returned empty, leaving long-tail pruning to ERS. These two positions are in
-tension: the reference implementation favours a non-trivial default for demonstration
-purposes, while the contract guidance favours a near-zero value in production
-deployments. Operators integrating with ERS should follow the contract guidance and
-lower the threshold accordingly.
+The clustering threshold (default: `0.7`) governs only whether the new mention joins
+an existing cluster: a join requires strong evidence. It does not prune the response:
+candidates below the threshold are still returned (see <<Step 5 — Candidate Generation>>),
+in line with the
+xref:ERS-ERE-Contract/supplement.adoc#configuration[contract supplement] guidance to leave
+long-tail pruning to ERS.
 ====
 
 This is an *online* algorithm: decisions are made one mention at a time, in arrival
-order. There is no retrospective re-clustering when new evidence arrives. This makes
-the algorithm fast and predictable, at the cost of order-sensitivity.
+order. Requests taken from the queue together (see <<Runtime Behaviour>>) can match
+each other; they are still assigned in arrival order. There is no retrospective
+re-clustering when new evidence arrives. This makes the algorithm fast and predictable,
+at the cost of order-sensitivity.
 
 ==== Canonical Identifier Derivation
 
@@ -171,10 +175,50 @@ a `confidence_score` and `similarity_score`.
 | The service is configured for `http://www.w3.org/ns/org#Organization`.
 Other entity types can be added via configuration.
 
-| Background model improvement
-| EM training runs automatically in a background thread once sufficient
-data is available.
+| One-time model training
+| EM training runs once when enough mentions are stored; the trained model is persisted
+and reused after a restart.
 |===
+
+== Runtime Behaviour
+
+=== Batched consumption
+
+The service takes waiting requests from the queue in batches instead of one at a time.
+A batch ends at the first limit reached: a number of requests, a total payload size, or
+a target processing time derived from the recent processing rate. When the queue is
+quiet, the service waits briefly for more requests and then processes what it has, so
+a single request is not delayed. Requests beyond a batch stay in the queue.
+
+Each batch is stored in one transaction and its responses are published together, in
+request order. If a batch fails, it is processed again one request at a time, so one
+faulty request does not fail the others. The service remains a single consumer.
+
+=== Storage and memory
+
+Mentions, similarity scores and cluster assignments are kept in an embedded DuckDB
+database on disk. Its memory use can be capped; under memory pressure, DuckDB spills
+temporary work to a directory on disk. The database, the spill directory and the
+trained model file form one storage footprint: they must sit on a persistent,
+writable volume and be monitored together.
+
+Because the scoring library reads the stored mentions directly, a restart does not
+lose the search space: the service resumes with all known mentions (a warm start).
+
+=== Logging
+
+For each request, the service logs lifecycle events with timings: time spent waiting
+in the queue before being taken, parsing, resolution, response, and total. Each event
+carries the batch identifier and size. The queue waiting time measures only the time
+before the request is taken from the queue. Mention content (RDF) is never logged.
+
+=== Upgrading
+
+The database schema changed with the introduction of batching and name-based blocking.
+An existing database is not migrated: on start, the service refuses a database created
+before this change and reports it as outdated. The operator deletes the database file
+and restarts the service; the model is trained again once the training threshold is
+reached.
 
 == What This Implementation Does Not Support
 
@@ -240,14 +284,14 @@ technology.
 | Component | Role
 
 | *Redis*
-| Message broker — `BRPOP` on `ere_requests` for incoming requests; `LPUSH` to `ere_responses` for outgoing responses.
+| Message broker — batches of incoming requests are taken from `ere_requests`; responses are pushed to `ere_responses`.
 
 | *DuckDB*
 | Embedded in-process analytical database for mentions, pairwise similarity scores, and cluster assignments.
-Runs in-memory during development; file-backed in production.
+Stored on disk by default; in-memory storage is available for development.
 
 | *Splink*
-| Probabilistic record linkage (Fellegi-Sunter) for pairwise similarity scoring, with background EM model training.
+| Probabilistic record linkage (Fellegi-Sunter) for pairwise similarity scoring, with a one-time EM model training.
 
 | *entity-resolution-spec*
 | Shared message models and domain types (`EntityMentionResolutionRequest`, `EntityMentionResolutionResponse`, `EREErrorResponse`).

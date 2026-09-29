@@ -177,6 +177,20 @@ Response envelope:
 ----
 
 [#error-reference]
+== Re-submitting Mentions
+
+ERS identifies a mention by its triad `(source_id, request_id, entity_type)` and records a hash of its exact `content`.
+When a client submits a triad that ERS already knows:
+
+* *Same content* — the request is a replay. ERS does not contact the ERE again; it returns the current decision for the mention.
+The current decision reflects any change made after the first answer, such as a curator action.
+* *Different content* — ERS rejects the request with `IDEMPOTENCY_CONFLICT` and keeps the original mention.
+
+The hash is computed on the content as sent, so a replay must be byte-identical.
+A client that re-submits mentions later, for example to pick up changed placements, must rebuild the same content: serialise it deterministically and avoid blank nodes, whose labels can change between serialisations.
+
+To follow placement changes without re-submitting, use `/refresh-bulk`; see xref:ERSArchitecture/spine-c.adoc[Spine C: Canonical assignment lookup].
+
 == Error Handling
 
 All error responses use a JSON body with an `error_code` field (machine-readable) and a `message` field (human-readable explanation):
