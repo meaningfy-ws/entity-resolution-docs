@@ -3,7 +3,7 @@
 *Intent.* Spine A defines the client-facing *Resolve* interaction in which an Originator submits a single Entity Mention and receives an identifier within the client-facing time budget. This spine makes three things unambiguous at the ERS boundary:
 
 * *Idempotent intake* correlated by the triad _(source_id, request_id, entity_type)_.
-* *Dual time budgets*, where the ERS–ERE execution window is shorter than the client–ERS timeout budget.
+* *A bounded time budget*: the ERS–ERE execution window also bounds the ERS response to the client.
 * *Identifier availability semantics*, including the provisional singleton lifecycle when the engine does not respond in time.
 
 *Simplified sequence diagram (Spine A)*
@@ -40,7 +40,7 @@ alt Request rejected
     ERS -->> ERIntake: Reject<br/>(validation, idempotency conflict, dependency unavailable)
     ERIntake -->> Originator: 4xx or 503
 else Request is an idempotent repeat
-    ERS -->> ERIntake: Previously returned identifier
+    ERS -->> ERIntake: Current recorded identifier
     ERIntake -->> Originator: 200 OK<br/>(identifier)
 else Request accepted
     ERS ->> MessagingMiddleware: Publish resolution request (async)<br/>(source_id, request_id, entity_type, EntityMention)
@@ -52,12 +52,8 @@ else Request accepted
         ERIntake -->> Originator: 200 OK<br/>Canonical cluster_id
     else ERE result not received within ERS to ERE execution window
         ERS ->> ERS: Create provisional singleton and persist decision
-        ERS ->> MessagingMiddleware: Publish placement instruction (async)<br/>(assign mention to singleton cluster_id)
         ERS -->> ERIntake: Provisional cluster_id
-        ERIntake -->> Originator: 200 OK<br/>Provisional cluster_id
-    else Client timeout budget exceeded
-        ERS -->> ERIntake: Error
-        ERIntake -->> Originator: 5xx or timeout
+        ERIntake -->> Originator: 202 Accepted<br/>Provisional cluster_id
     end
 end
 
@@ -69,7 +65,7 @@ Note right of ERS: Late or duplicate engine results may update the stored<br/>de
 
 *Submit resolve request.* The Originator submits a resolve request containing the triad _(source_id, request_id, entity_type)_ and a single Entity Mention payload to the ERS intake interface.
 
-*Validate and enforce idempotency.* ERS validates the request and enforces idempotency based on the triad. Replays are handled deterministically. Conflicting submissions, such as reuse of the same triad with a different payload under the same contract rules, are rejected.
+*Validate and enforce idempotency.* ERS validates the request and enforces idempotency based on the triad. Replays are handled deterministically: ERS returns the mention's current recorded identifier without contacting the ERE. Conflicting submissions, such as reuse of the same triad with a different payload under the same contract rules, are rejected.
 
 *Reject invalid or non-processable requests.* If the request violates mandatory validation rules, triggers an idempotency conflict, or cannot be processed due to mandatory dependency unavailability, ERS returns an explicit error outcome.
 
@@ -78,8 +74,7 @@ Note right of ERS: Late or duplicate engine results may update the stored<br/>de
 *Return within the client budget.* ERS waits up to the *ERS–ERE execution window* for an authoritative engine outcome.
 
 * If an engine outcome is received within the execution window, ERS records the latest decision for the mention and returns the *`cluster_id` (canonical identifier)* produced by the ERE.
-* If no engine outcome is received within the execution window, ERS issues a *provisional singleton `cluster_id`*, records it as the current placement for the mention, returns it to the client within the client budget, and forwards the provisional placement to ERE as a standard resolution request variant carrying the optional `proposed_cluster_ids` field defined in the xref:ERS-ERE-Contract/interface.adoc[ERS–ERE contract].
-* If the *client–ERS timeout budget* is exceeded before ERS can produce a compliant response, ERS returns an explicit timeout or error outcome.
+* If no engine outcome is received within the execution window, ERS issues a *provisional singleton `cluster_id`*, records it as the current placement for the mention, and returns it to the client. ERS sends nothing further to the ERE: the ERE keeps processing the original request, and because the provisional identifier follows the ERE's singleton derivation rule, a singleton outcome confirms it and any other outcome replaces it (see xref:AnnexeC-ADRs/adra2.adoc#adr-a2n[ADR-A2N]).
 
 *Late and duplicate outcomes.* Engine outcomes may arrive late or duplicated. ERS processes them idempotently and updates its stored *latest decision record per mention*. Completed client responses are not retroactively changed, but the canonical identifier exposed by ERS for subsequent lookups and bulk delta synchronisation reflects the latest authoritative assignment recorded.
 
@@ -87,8 +82,8 @@ Note right of ERS: Late or duplicate engine results may update the stored<br/>de
 
 * Each resolve request is correlated by _(source_id, request_id, entity_type)_ and processes exactly one Entity Mention.
 * ERS enforces idempotency at intake: deterministic handling of identical replays; explicit rejection of contract-relevant conflicts.
-* The engine boundary is asynchronous and tolerant to at-least-once delivery; duplicates and late arrivals are normalised by idempotent processing.
-* An identifier is returned within the client-facing budget when possible:
+* The engine boundary is asynchronous; duplicates and late arrivals are normalised by idempotent processing, and a lost message is covered by the provisional identifier path.
+* An identifier is always returned within the time budget:
 ** authoritative *`cluster_id`* if the engine responds within the ERS–ERE execution window,
 ** otherwise a *provisional singleton `cluster_id`*, treated as the current canonical placement until replaced by a later authoritative outcome.
 

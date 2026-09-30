@@ -3,7 +3,7 @@
 
 [NOTE]
 ====
-Status: Accepted
+Status: Accepted (revised 2026-09-30 to match ERSys 1.1.0)
 ====
 
 == Context and Problem Statement
@@ -21,12 +21,12 @@ The architecture must therefore reconcile two constraints:
 
 == Decision
 
-Two distinct time budgets are defined:
+Each resolution request is bounded by a time budget:
 
-. A client-facing timeout budget governing the ERS synchronous API response.
-. A shorter ERS–ERE execution window used while waiting for an engine response.
+. For a single-mention request, one budget serves both as the ERS–ERE execution window and as the bound on the ERS response.
+. For a bulk request, each mention is resolved concurrently within that execution window, and the whole request is bounded by a separate bulk budget.
 
-Client-facing resolution APIs are synchronous and blocking within the client-facing timeout budget.
+Client-facing resolution APIs are synchronous and blocking within these budgets. The client's own timeout must be longer than the budget of the request it sends.
 
 For each valid resolution request:
 
@@ -38,32 +38,37 @@ If the ERE returns a clustering outcome within the execution window:
 * ERS returns the cluster identifier provided by ERE as the canonical identifier.
 * ERS persists the placement as the latest known assignment.
 
-If the ERE does not return a clustering outcome within the execution window, but the client-facing timeout budget has not expired:
+If the ERE does not return a clustering outcome within the execution window:
 
 * ERS issues a provisional singleton cluster identifier.
 * The provisional identifier is returned to the client as the canonical identifier for that request.
-* ERS communicates the provisional placement to the ERE as a resolution request with a recommended placement.
 
-The ERE processes provisional placements as standard resolution requests and may:
+ERS sends no further message to the ERE: the ERE keeps processing the original request.
+Because the provisional identifier is derived with the same rule the ERE uses for a new singleton cluster (see xref:AnnexeC-ADRs/adra1.adoc#adr-a1n[ADR-A1N]), the ERE outcome, when it arrives, either:
 
-* Confirm the provisional cluster identifier, or
-* Replace it with a different cluster identifier.
+* Confirms the provisional cluster identifier (singleton outcome), or
+* Replaces it with a different cluster identifier.
 
 ERS shall accept, persist, and expose the latest cluster assignment returned by ERE, even if this replaces a previously issued provisional identifier.
 
-ERS shall not return a timeout error to the client if the client-facing timeout budget has not expired.
+ERS shall not return a timeout error for a single-mention request: when the execution window expires, it returns the provisional identifier.
+A bulk request that exceeds its bulk budget fails as a whole with a timeout error, and no partial result is returned.
 
-A canonical identifier is therefore always returned for each accepted resolution request, unless the request itself is invalid or the client-facing timeout budget is exceeded.
+A canonical identifier is therefore always returned for each accepted resolution request, unless the request itself is invalid, a backing service is unavailable, or a bulk request exceeds its bulk budget.
 
 Provisional identifiers are valid canonical placements until replaced by a subsequent ERE outcome.
 
+*Provisional-only mode.* When the single-mention budget is set to zero, ERS does not contact the ERE at all and returns a provisional identifier immediately.
+No ERE outcome ever confirms or replaces these identifiers.
+This mode is intended only for deployments without an ERE.
+
 == Scope and Applicability
 
-This decision applies to all ERS client-facing resolution APIs and governs both initial resolution and recommendation-based re-resolution requests.
+This decision applies to all ERS client-facing resolution APIs.
 
 It governs client-visible timeout behaviour and the lifecycle of provisional placements.
 
-It does not prescribe specific timeout durations, infrastructure mechanisms, or messaging technologies.
+It does not prescribe specific timeout durations, infrastructure mechanisms, or messaging technologies; the configured budgets are listed in xref:Installation/environment-variables.adoc#ers-api[Environment Variables].
 
 == Considered Options
 
@@ -75,16 +80,16 @@ It does not prescribe specific timeout durations, infrastructure mechanisms, or 
 
 Issuing provisional singleton placements ensures that clients receive a usable canonical identifier within bounded time, independent of engine latency.
 
-Separating the client-facing timeout budget from the ERS–ERE execution window prevents engine delay from directly causing client-visible failure.
+Returning a provisional identifier when the execution window expires prevents engine delay from causing client-visible failure.
 
-Treating provisional placements and user recommendations under the same interaction pattern simplifies the contract and keeps clustering authority exclusively in the ERE.
+Deriving the provisional identifier with the same rule as an ERE singleton makes a separate recommendation message unnecessary and keeps clustering authority exclusively in the ERE.
 
 Allowing later correction by ERE preserves a single authoritative clustering model while maintaining operational continuity for clients.
 
 == Consequences
 
-* Clients always receive a canonical identifier for accepted resolution requests within the client-facing timeout budget.
+* Clients always receive a canonical identifier for accepted single-mention requests within the time budget; bulk requests either complete within the bulk budget or fail as a whole.
 * Canonical identifiers previously returned to clients may change if the ERE subsequently returns a different clustering outcome.
 * Provisional singleton clusters may exist temporarily and may later be merged or replaced by ERE.
 * Clients must rely on refreshBulk or lookup mechanisms to observe placement changes over time.
-* Resolution latency variability no longer translates directly into client-visible errors, provided the client-facing timeout budget is respected.
+* Resolution latency variability does not translate into client-visible errors for single-mention requests.

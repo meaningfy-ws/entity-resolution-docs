@@ -10,7 +10,7 @@ This Blue use case refines xref:AnnexeB-UseCases/ucw1.adoc#uc-w1[UC-W1: Resolve 
 
 == Stakeholders and Interests
 
-* The Originator requires a canonical identifier for each submitted Entity Mention within the agreed client-facing timeout budget.
+* The Originator requires a canonical identifier for each submitted Entity Mention within the time budget of the request.
 * ERS operators require deterministic timeout handling, strict idempotency enforcement, and isolation between synchronous API guarantees and asynchronous engine processing.
 * Downstream consumers rely on cluster identifiers as canonical identity references and must reconcile later Cluster Assignment changes via refresh mechanisms.
 
@@ -24,9 +24,9 @@ Upon receiving a valid request, ERS:
 * forwards the mention to ERE using the resolve interaction,
 * waits for an ERE response within the ERS–ERE execution window.
 
-If ERE responds within the execution window, ERS returns the cluster identifier produced by ERE and records the resulting Cluster Assignment (along with alternatives) in the Decision Store. If ERE does not respond within the execution window but the client timeout budget has not expired, ERS deterministically derives a singleton cluster identifier (Provisional Identifier), returns it to the Originator within the client timeout budget, and forwards the recommended Cluster Assignment to ERE using the recommendation-bearing resolution interaction defined in the xref:ERS-ERE-Contract/interface.adoc[ERS–ERE contract]. ERE may subsequently confirm or replace the Cluster Assignment.
+If ERE responds within the execution window, ERS returns the cluster identifier produced by ERE and records the resulting Cluster Assignment (along with alternatives) in the Decision Store. If ERE does not respond within the execution window, ERS deterministically derives a singleton cluster identifier (Provisional Identifier) and returns it to the Originator (HTTP 202, marked PROVISIONAL); an ERE answer within the window is returned with HTTP 200, marked CANONICAL. ERS sends no further message to ERE; the outcome of the original request, as defined in the xref:ERS-ERE-Contract/interface.adoc[ERS–ERE contract], later confirms or replaces the Cluster Assignment.
 
-Bulk submission, if supported, is treated as a finite list of independent single-mention requests. The execution window applies per mention. Total processing time scales with the number of mentions submitted.
+Bulk submission is treated as a finite list of independent single-mention requests. The mentions are resolved concurrently, each within the execution window, and the whole request is bounded by the bulk budget. If the bulk budget is exceeded, the whole request fails with a timeout error (HTTP 504, SERVICE_TIMEOUT) and no partial result is returned; Provisional Identifiers already issued remain stored. A bulk response is HTTP 200 when all mentions are canonical, HTTP 202 when all are provisional, and HTTP 207 when they are mixed or any mention failed; each failed mention carries the same error code as a single request would.
 
 == Preconditions
 
@@ -43,7 +43,7 @@ The Originator submits a resolve request containing one Entity Mention.
 The success and minimal guarantees, and the main and alternate scenarios, are those of xref:AnnexeB-UseCases/ucw1.adoc#uc-w1[UC-W1] and are not restated here. This Blue path adds only the following realisation specifics:
 
 . The request is registered in the Request Registry and correlated using `(source_id, request_id, entity_type)`.
-. Idempotency is enforced at registration: identical repeated submissions yield the same canonical identifier previously returned for that request context, per the idempotency rules stated in xref:AnnexeB-UseCases/ucw1.adoc#uc-w1[UC-W1] (including the idempotency-conflict rule).
+. Idempotency is enforced at registration: an identical repeated submission returns the mention's current Cluster Assignment from the Decision Store (HTTP 200, marked CANONICAL) without contacting ERE, per the idempotency rules stated in xref:AnnexeB-UseCases/ucw1.adoc#uc-w1[UC-W1] (including the idempotency-conflict rule).
 
 == Minimal Guarantees (On Failure)
 
@@ -53,10 +53,11 @@ As stated in xref:AnnexeB-UseCases/ucw1.adoc#uc-w1[UC-W1]. No additional Blue-sp
 
 These extensions are realisation-specific deltas over the UC-W1 contract:
 
-1a. Invalid or malformed request — ERS rejects the request and returns a validation error. +
-1b. Unsupported entity type or payload format — ERS returns an explicit error indicating the unsupported type or format. +
-2a. Idempotency conflict — realisation of the UC-W1 idempotency-conflict rule: if the same `(source_id, request_id, entity_type)` is submitted with a different payload, ERS returns an IDEMPOTENCY_CONFLICT error and does not modify the Decision Store. +
-3a. Rate limit exceeded — ERS rejects the request with a rate-limit error.
+1a. Invalid or malformed request — ERS rejects the request and returns a validation error (HTTP 400, VALIDATION_ERROR). +
+1b. Unsupported entity type or payload format, or mention content that cannot be parsed or exceeds the configured maximum size — ERS returns an explicit error (HTTP 400, PARSING_FAILED). +
+2a. Idempotency conflict — realisation of the UC-W1 idempotency-conflict rule: if the same `(source_id, request_id, entity_type)` is submitted with a different payload, ERS returns an IDEMPOTENCY_CONFLICT error (HTTP 422) and does not modify the Decision Store. +
+2b. Backing service unavailable — if the document store, Redis or the messaging channel is unavailable, ERS returns a SERVICE_UNAVAILABLE error (HTTP 503); no Provisional Identifier is issued. +
+3a. Rate limit exceeded — ERS does not implement rate limiting; where it is required, a gateway in front of the ERS API enforces it and rejects the request.
 
 == Special Requirements
 

@@ -1,6 +1,6 @@
 === 8.3 Spine B: Asynchronous engine interaction and outcome integration (ERS–ERE)
 
-*Intent.* Spine B defines the asynchronous interaction between ERS and the Entity Resolution Engine (ERE) for resolution requests and clustering outcomes. This spine is the architectural shock absorber of ERSys: it makes explicit that messaging is at-least-once, outcomes can be late or duplicated, and the engine may publish outcomes even when ERS did not just send a request (for example, due to engine-initiated reclustering). The ERE is authoritative for clustering outcomes, and ERS is responsible for correlating, recording, and exposing the latest outcome per mention.
+*Intent.* Spine B defines the asynchronous interaction between ERS and the Entity Resolution Engine (ERE) for resolution requests and clustering outcomes. This spine is the architectural shock absorber of ERSys: it makes explicit that messaging gives no delivery guarantee, outcomes can be late, duplicated or lost, and the engine may publish outcomes even when ERS did not just send a request (for example, due to engine-initiated reclustering). The ERE is authoritative for clustering outcomes, and ERS is responsible for correlating, recording, and exposing the latest outcome per mention.
 
 *Simplified sequence diagram (Spine B)*
 
@@ -53,14 +53,14 @@ Note right of ERS: Optional excluded_cluster_ids express negative evidence.<br/>
 
 *Narrative aligned to the simplified diagram*
 
-*Publish a resolution request (asynchronous).* ERS may publish a resolution request to the messaging middleware. This is typically triggered by Spine A (intake) or Spine D (curation recommendation), and it always carries the correlation triad _(source_id, request_id, entity_type)_ plus the Entity Mention. Optionally, ERS may include the optional ERS→ERE fields defined in the xref:ERS-ERE-Contract/interface.adoc[ERS–ERE contract]:
+*Publish a resolution request (asynchronous).* ERS may publish a resolution request to the messaging middleware. This is triggered by Spine A (intake) or Spine D (curation recommendation), and it always carries the correlation triad _(source_id, request_id, entity_type)_ plus the Entity Mention. Optionally, ERS may include the optional ERS→ERE fields defined in the xref:ERS-ERE-Contract/interface.adoc[ERS–ERE contract]:
 
 * `excluded_cluster_ids` (negative evidence), and/or
-* `proposed_cluster_ids` (preferred placement), including provisional singleton placement.
+* `proposed_cluster_ids` (preferred placement).
 
-These fields are not governance overrides; they are inputs to engine evaluation.
+These fields are not governance overrides; they are inputs to engine evaluation, and an ERE may treat them as advisory (the Basic ERE ignores them). ERS does not send a request carrying a provisional identifier: after issuing one, it waits for the outcome of the original request.
 
-*Deliver to the engine under at-least-once semantics.* The messaging middleware delivers the request to the ERE asynchronously. Duplicates can occur, and delivery ordering is not guaranteed.
+*Deliver to the engine without delivery guarantees.* The messaging middleware delivers the request to the ERE asynchronously. Duplicates can occur, delivery ordering is not guaranteed, and a message can be lost; a lost request or response leaves the provisional identifier in place until the mention is re-submitted or a later outcome arrives.
 
 *Produce and publish an authoritative outcome.* The ERE performs its internal resolution logic and publishes a resolution result that includes:
 
@@ -98,6 +98,6 @@ Outcomes may be *solicited* (in response to an ERS request) or *unsolicited* (fo
 
 * *White Use Case(s):* xref:AnnexeB-UseCases/ucw1.adoc#uc-w1[UC-W1] (asynchronous completion and late outcomes), xref:AnnexeB-UseCases/ucw2.adoc#uc-w2[UC-W2] (recommendations triggering re-evaluation).
 * *Blue Use Case(s):* xref:AnnexeB-UseCases/ucb12.adoc#uc-b1-2[UC-B1.2].
-* *ADRs:* ADR-A1N, ADR-A2N, ADR-C1N, ADR-C2N, ADR-C3N (engine authority, provisional lifecycle, idempotency, at-least-once tolerance, and integration semantics).
+* *ADRs:* ADR-A1N, ADR-A2N, ADR-C1N, ADR-C2N, ADR-C4N (engine authority, provisional lifecycle, idempotency, delivery tolerance, and outcome notification across ERS replicas).
 * *Contracts:* ERS–ERE Technical Contract (asynchronous, normative).
 * *Detailed diagram artefact:* spine-B-async-integration.mmd (associated Mermaid artefact).

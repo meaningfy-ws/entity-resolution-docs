@@ -3,7 +3,7 @@
 
 [NOTE]
 ====
-Status: Accepted
+Status: Accepted (revised 2026-09-30 to match ERSys 1.1.0)
 ====
 
 == Context and Problem Statement
@@ -15,7 +15,7 @@ Clients, however, require a single, bounded interaction model that returns a usa
 Under the authoritative ERE model and the provisional identifier mechanism, the client-facing contract must:
 
 * Remain synchronous and bounded.
-* Always return a canonical identifier for accepted requests within the client-facing timeout budget.
+* Always return a canonical identifier for accepted requests within the time budget of the request.
 * Allow subsequent correction of cluster assignment without retroactively mutating completed API responses.
 
 The architecture must therefore reconcile synchronous client expectations with asynchronous engine behaviour, without introducing polling contracts or exposing internal timing variability.
@@ -23,13 +23,16 @@ The architecture must therefore reconcile synchronous client expectations with a
 == Decision
 
 . *Synchronous Client API*
-.. Client-facing resolution APIs in ERS are synchronous and blocking within a defined client-facing timeout budget.
+.. Client-facing resolution APIs in ERS are synchronous and blocking within the time budget of the request type (see xref:AnnexeC-ADRs/adra2.adoc#adr-a2n[ADR-A2N]).
+.. The client's own timeout must be longer than the budget of the request it sends.
 . *Forwarding to ERE*
 .. For each valid resolution request, ERS forwards the request to ERE using the asynchronous interaction model defined in xref:AnnexeC-ADRs/adrc2.adoc#adr-c2n[ADR-C2N].
-. *Dual Time-Budget Model*
-.. ERS waits for an ERE response within the ERS–ERE execution window.
+. *Time Budget per Request Type*
+.. For a single-mention request, one budget serves both as the ERS–ERE execution window and as the bound on the ERS response.
 ... If ERE responds within this window, ERS returns the cluster_id provided by ERE.
-... If ERE does not respond within this window, and the client-facing timeout budget has not expired, ERS issues and returns a provisional singleton cluster_id.
+... If ERE does not respond within this window, ERS issues and returns a provisional singleton cluster_id.
+.. For a bulk request, each mention is resolved concurrently within the same execution window, and the whole request is bounded by a separate bulk budget.
+... If the bulk budget is exceeded, the whole request fails and no partial result is returned.
 . *Post-Response Engine Outcomes*
 .. ERE responses received after the synchronous client request has completed are processed normally by ERS.
 .. If such a response replaces a previously returned provisional cluster_id, ERS updates its projection store accordingly.
@@ -39,9 +42,10 @@ The architecture must therefore reconcile synchronous client expectations with a
 .. Eventual correction of cluster assignment is observable through lookup or refreshBulk mechanisms, not through deferred completion of the original request.
 . *Error Semantics*
 .. ERS returns an explicit error only if:
-... The client-facing timeout budget is exceeded, or
-... The request is invalid.
-.. Engine delay alone does not result in an error if a provisional identifier can be issued within the client-facing timeout budget.
+... The request is invalid (HTTP 400, or 422 for an idempotency conflict),
+... A backing service of ERS is unavailable (HTTP 503); no provisional identifier is issued in this case, or
+... A bulk request exceeds its bulk budget (HTTP 504).
+.. Engine delay alone never results in an error for a single-mention request: when the execution window expires, ERS returns a provisional identifier.
 
 == Scope and Applicability
 
@@ -69,7 +73,7 @@ Avoiding polling or job-based APIs keeps the external contract minimal and preve
 
 == Consequences
 
-* Clients always receive a canonical identifier for accepted requests within the client-facing timeout budget.
+* Clients always receive a canonical identifier for accepted single-mention requests within the time budget; bulk requests either complete within the bulk budget or fail as a whole.
 * Canonical identifiers returned in a response may later be replaced by a different cluster_id as determined by ERE.
 * Late ERE responses affect future lookups and refreshBulk results, not the already completed synchronous response.
 * High request volumes may impact the likelihood of ERE responding within the execution window, but do not alter identifier semantics.

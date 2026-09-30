@@ -16,7 +16,7 @@ ERS records and exposes the latest resolution decision per mention. It does not 
 
 === Bounded Exposure with Provisional Continuity
 
-Client-facing interactions are bounded by explicit time budgets enforced by ERS. If the ERE responds within the execution window, its `cluster_id` is returned. If it does not, ERS issues a deterministically derived singleton `cluster_id` in accordance with the canonical identifier derivation rule defined in the ERS–ERE Technical Contract. Deterministic derivation applies to provisional singleton placements only. ERS forwards this placement to the ERE for authoritative evaluation.
+Client-facing interactions are bounded by explicit time budgets enforced by ERS. If the ERE responds within the execution window, its `cluster_id` is returned. If it does not, ERS issues a deterministically derived singleton `cluster_id` in accordance with the canonical identifier derivation rule defined in the ERS–ERE Technical Contract. Deterministic derivation applies to provisional singleton placements only. ERS sends no separate message: the ERE outcome of the original request, when it arrives, confirms or replaces the provisional placement.
 
 Identity continuity at the API boundary is guaranteed without transferring clustering authority away from the ERE.
 
@@ -32,7 +32,7 @@ A separate User Action Log records human recommendations as a read-only trace. T
 
 === Recommendations Do Not Confer Identity
 
-User actions and provisional ERS placements are transmitted to the ERE as recommendations. They influence evaluation but do not directly modify canonical identity. The authoritative assignment is always and exclusively the result of ERE clustering.
+User actions are transmitted to the ERE as recommendations. They may influence evaluation but do not directly modify canonical identity. The authoritative assignment is always and exclusively the result of ERE clustering.
 
 == Normative architectural invariants
 

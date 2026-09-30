@@ -3,7 +3,7 @@
 
 [NOTE]
 ====
-Status: Accepted
+Status: Accepted (revised 2026-09-30 to match ERSys 1.1.0)
 ====
 
 == Context and Problem Statement
@@ -23,16 +23,18 @@ This separation must not introduce ambiguity about clustering authority or allow
 
 == Decision
 
-. *External Authentication Authority*
-.. Authentication of human users accessing ERS administrative or curation interfaces shall be delegated to an external SSO system where available.
-.. The SSO system is the sole authority for:
-... Credential management
-... Authentication flows
-... Token issuance
-.. ERS shall not manage user credentials, passwords, or authentication mechanisms.
+. *External Authentication Authority (target)*
+.. The target model delegates authentication of human users accessing ERS administrative or curation interfaces to an external SSO system, which would then be the sole authority for credential management, authentication flows and token issuance.
+.. Delegation to an SSO system or other external identity provider is not implemented in ERSys 1.1.0.
+. *Local Authentication (implemented)*
+.. ERS authenticates human users with local accounts.
+.. Passwords are stored hashed; ERS issues JWT access and refresh tokens.
+.. An administrator account is created at startup from the deployment configuration.
+.. Admins create users and set their passwords.
+.. A self-registration operation exists; it creates unverified accounts, which have no curation access until an Admin verifies them.
 . *Local Authorisation in ERS*
 .. ERS retains authority for authorisation decisions within its functional scope.
-.. ERS maintains role assignments such as Admin and Curator.
+.. ERS maintains role assignments such as Admin and Curator (a verified user).
 .. Authorisation governs access to:
 ... Re-resolution requests
 ... Administrative operations
@@ -40,7 +42,7 @@ This separation must not introduce ambiguity about clustering authority or allow
 .. Authentication and authorisation mechanisms shall not redefine clustering authority.
 .. Even authorised users do not override ERE clustering outcomes directly; user actions are forwarded as recommendations under xref:AnnexeC-ADRs/adrb2.adoc#adr-b2n[ADR-B2N] and xref:AnnexeC-ADRs/adre1.adoc#adr-e1n[ADR-E1N].
 . *Revocation Semantics*
-.. Access revocation shall be effective subject to the guarantees of the SSO system and token/session semantics.
+.. Access revocation takes effect through account deactivation, which applies from the next request of the deactivated user.
 .. ERS shall validate authenticated identity and associated roles for each protected operation.
 
 == Scope and Applicability
@@ -58,12 +60,12 @@ It does not apply to:
 == Considered Options
 
 * *Local Authentication and Authorisation in ERS.* Implement credential storage and authentication flows within ERS.
-* *External Authentication with Local Authorisation.* Delegate authentication to an SSO system while retaining authorisation control within ERS. _(Selected)_
+* *External Authentication with Local Authorisation.* Delegate authentication to an SSO system while retaining authorisation control within ERS. _(Selected as target; ERSys 1.1.0 implements local authentication)_
 * *Full External Identity Management.* Delegate both authentication and fine-grained authorisation to an external identity provider.
 
 == Rationale
 
-Delegating authentication reduces security risk and avoids duplication of mature identity infrastructure.
+Delegating authentication reduces security risk and avoids duplication of mature identity infrastructure; this is why it remains the target model.
 
 Retaining authorisation within ERS preserves governance control over operational capabilities without coupling clustering semantics to external identity systems.
 
@@ -71,7 +73,8 @@ Explicitly preventing governance override through authentication roles maintains
 
 == Consequences
 
-* ERS depends on external SSO availability for human authentication.
+* With local authentication, ERS manages credentials and token issuance itself.
+* Once authentication is delegated, ERS will depend on external SSO availability for human authentication.
 * Role management remains an ERS responsibility.
 * Authorised users cannot directly override clustering outcomes; their actions remain recommendations processed by ERE.
 * Changes to authentication infrastructure do not affect canonical identity semantics.

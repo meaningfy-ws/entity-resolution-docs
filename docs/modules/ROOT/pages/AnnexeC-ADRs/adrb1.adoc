@@ -3,7 +3,7 @@
 
 [NOTE]
 ====
-Status: Accepted
+Status: Accepted (revised 2026-09-30 to match ERSys 1.1.0)
 ====
 
 == Context and Problem Statement
@@ -29,13 +29,13 @@ The following rules are binding:
 . *Binding nature of ERE outcomes*
 .. Any cluster assignment returned by ERE for a mention is binding.
 .. ERS shall accept, persist, and expose the latest cluster assignment returned by ERE.
-.. This applies equally to outcomes following initial resolution, provisional placement feedback, user placement recommendations, exclusion-based re-resolution, and reclustering.
+.. This applies equally to outcomes following initial resolution, outcomes that confirm or replace a provisional placement, user placement recommendations, exclusion-based re-resolution, and reclustering.
 . *No ERS veto or governance override*
 .. ERS has no veto power over ERE outcomes.
 .. ERS shall not apply governance rules that override, freeze, or reinterpret ERE cluster assignments.
 .. ERS shall not implement stability guards beyond preventing improper identifier reuse.
 . *Provisional placements and user actions are recommendations*
-.. When ERS issues a provisional singleton placement due to its own execution window, that placement is a temporary recommendation communicated to ERE.
+.. When ERS issues a provisional singleton placement due to its own execution window, that placement is temporary; it is not communicated to ERE, which keeps processing the original request (see xref:AnnexeC-ADRs/adra2.adoc#adr-a2n[ADR-A2N]).
 .. When a user submits a placement recommendation or exclusions, ERS forwards them to ERE as recommendations.
 .. ERE may confirm or replace any such recommendation.
 .. ERS must reflect the latest ERE outcome, even if that changes a previously exposed canonical identifier.
@@ -51,7 +51,8 @@ The following rules are binding:
 . *ERE responsibilities*
 .. Perform clustering and assignment computation.
 .. Maintain clusters and cluster identifiers in its authoritative store.
-.. Evaluate recommendations (provisional placements, user placements, exclusions) and return a new clustering outcome.
+.. Return a clustering outcome for each request, including requests that carry recommendations (user placements, exclusions).
+.. Recommendations are advisory: an ERE may take them into account or ignore them (the Basic ERE ignores them).
 .. Ensure cluster identifier management prevents improper reuse.
 
 == Scope and Applicability
@@ -72,7 +73,7 @@ Making the ERE authoritative for clustering establishes a single semantic source
 
 Constraining ERS to a façade role keeps external contracts stable and implementable: ERS can focus on bounded client-facing behaviour, correlation, persistence of the latest assignment, and operational traceability, without encoding engine-dependent governance semantics.
 
-Treating both provisional placements and user actions as recommendations preserves a uniform interaction pattern while ensuring that the authoritative clustering model remains consistent and engine-controlled.
+Treating user actions as recommendations, and provisional placements as temporary until the ERE outcome arrives, ensures that the authoritative clustering model remains consistent and engine-controlled.
 
 == Consequences
 

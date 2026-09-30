@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [unreleased]
 
 
+## [1.1.0-rc.8] - 2026-09-30
+
+### Added
+* Installation & Operations section: deployment requirements, environment variable reference and upgrade notes for ERSys 1.1.0-rc.8; the environment variable reference is now the master reference for deployment settings
+* ADR-C4N: outcome notification across ERS replicas
+* API integration guide: request size limits and ERS REST API success status codes
+* API integration guide: re-submitting mentions
+
+### Changed
+* Runtime topology and technology choices aligned with the installed system (Redis 6.2 or newer, queue backlog sizing)
+* Basic ERE reference implementation: batched consumption, name-based blocking, one-time model training, storage and memory, logging, idempotent path, consequences of a database reset, unsupported options
+* ADRs A2N and C1N: one time budget per request type, bulk budget failure, provisional-only mode; no separate recommendation after a provisional identifier
+* ADR-C2N: delivery semantics, message envelope aligned with the ERS–ERE contract, handling of ERE error responses
+* ADRs B1N, B2N, D1N, D2N, E1N, F1N, G1N, G2N aligned with the implementation (advisory recommendations, curator action guard, durable ERE store, refreshBulk paging and first-assignment rule, engine-internal candidate generation, local authentication)
+* Use cases UC-W1 to UC-W5 and UC-B1.1 to UC-B2.2 aligned with the implementation (replay semantics, error codes, refreshBulk semantics, curator actions, statistics, user management)
+* Behaviour spines, architecture overview pages and glossary aligned with the revised ADRs and use cases
+* API integration guide: error tables corrected and completed with HTTP status codes
+* ERS configuration reference: request limits and tracing areas added
+* ERS–ERE contract: error response handling and error type examples
+* Curation user guide: one action per placement, best-effort forwarding, effect of recommendations with the Basic ERE
+
+### Fixed
+* API integration guide: error reference anchor restored on the Error Handling section
+
+
 ## [1.0.0-rc.6] - 2026-07-16
 
 ### Changed

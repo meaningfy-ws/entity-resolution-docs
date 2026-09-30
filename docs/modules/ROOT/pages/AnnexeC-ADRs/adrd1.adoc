@@ -3,7 +3,7 @@
 
 [NOTE]
 ====
-Status: Accepted
+Status: Accepted (revised 2026-09-30 to match ERSys 1.1.0)
 ====
 
 == Context and Problem Statement
@@ -76,3 +76,6 @@ Keeping only latest-placement projections in ERS simplifies lookup, refresh, and
 * Clients cannot reconstruct historical cluster evolution from ERS APIs.
 * Introducing lineage, versioned canonical entities, or an ERS-owned canonical registry would require a new architectural decision.
 * Storage technologies may evolve independently as long as authority semantics remain unchanged.
+* The ERE store must be durable. ERS answers repeated requests from its own Decision Store and does not re-send mentions that already have a decision, so it cannot rebuild the ERE store.
+* If the ERE store is lost or reset, ERS keeps cluster identifiers that the ERE no longer knows, and new mentions of the same entities may form new clusters beside them.
+Requests the ERE has taken from the queue but not answered when it stops are also lost; ERS keeps the provisional identifiers issued for them.

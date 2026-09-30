@@ -307,10 +307,17 @@ An ERE request of any type (resolution, rebuild) MAY fail, due to problems such 
 {
   "type": "EREErrorResponse",
   "ere_request_id": "324fs3r345vx",
-  "error_type": "ere.exceptions.MalformedRequestError",
+  "error_type": "ProcessingError",
   "error_title": "The entity data is missing in the request",
   "error_detail": "The 'entity' attribute is required in EntityResolutionRequest message",
   "error_trace": "Traceback (most recent call last):\n  File \"/app/ere/service.py\",\n     line 45, in process_request\n..."  <1>
 }
 ----
 <1> `error_trace` is optional and SHOULD NOT be included in production use.
+
+The `error_type` values are implementation-specific.
+As non-normative examples, the Basic ERE uses `ProcessingError`, `ConflictError`, `ValueError`, `InternalError` and `UnsupportedRequestType`.
+
+An `EREErrorResponse` carries only the `ere_request_id` of the failed request, or `"unknown"` when the request could not be parsed; it does not carry the entity mention identifier triad.
+The ERS logs error responses and does not change any decision because of them.
+A caller waiting for the outcome of the failed request falls back through the ERS time-budget path.

@@ -20,7 +20,7 @@ This use case describes how ERS integrates clustering outcomes produced by ERE i
 
 Canonical identity is defined as a cluster managed by ERE. Cluster identifiers are canonical identifiers. ERE is authoritative for clustering outcomes and its decisions are binding.
 
-ERS and ERE interact through several resolution interaction types: an initial clustering request; a clustering request carrying a recommended Cluster Assignment (for example a Provisional Identifier or curator recommendation); a clustering request carrying recommended exclusions; and an outcome notification emitted by ERE when it performs internal reclustering not requested by ERS. The concrete interaction names and message structures are defined in the xref:ERS-ERE-Contract/interface.adoc[ERS–ERE contract].
+ERS sends ERE a single kind of resolution request; its intent is implied by the optional lists it carries: a plain clustering request carries neither, a request carrying a curator recommendation fills the proposed cluster identifiers, and a request carrying curator exclusions fills the excluded cluster identifiers. When ERE reassigns mentions on its own initiative (internal reclustering), it emits ordinary resolution responses that no ERS request solicited. The message structures are defined in the xref:ERS-ERE-Contract/interface.adoc[ERS–ERE contract].
 
 ERE responds asynchronously with a clustering outcome for a mention, including:
 
@@ -32,8 +32,8 @@ ERS does not evaluate, override, or reinterpret clustering outcomes. Upon receiv
 Integration of ERE outcomes may occur:
 
 . As continuation of a synchronous resolve interaction.
-. As confirmation or replacement of a Provisional Identifier.
-. As result of user-triggered recommendation or exclusion flows.
+. As confirmation or replacement of a Provisional Identifier, when the outcome of the original request arrives after the execution window.
+. As result of curator-triggered recommendation or exclusion flows.
 . As result of ERE-initiated reclustering.
 
 The canonical identifier exposed by ERS always reflects the latest Cluster Assignment stored in the Decision Store.
@@ -63,6 +63,7 @@ If the received outcome replaces a previously stored Cluster Assignment (includi
 * If ERS cannot publish a request to ERE, the failure is logged and no Decision Store state is modified.
 * If an ERE response is invalid, uncorrelated, duplicated, or arrives out of order, ERS applies correlation rules and updates the Decision Store only if the outcome is applicable under the current request context.
 * ERE failures do not invalidate existing Cluster Assignments.
+* An ERE error response carries only the ERE request identifier (not the mention identifier tuple); ERS logs it and does not change any Cluster Assignment. A caller still waiting for that mention falls back to a Provisional Identifier when the execution window expires.
 
 == Main Success Scenario
 
@@ -84,9 +85,8 @@ Internal Reclustering Outcome:
 
 Provisional Identifier Replacement:
 
-. ERS issues a Provisional Identifier due to execution window timeout.
-. ERS forwards the recommended Cluster Assignment to ERE.
-. ERE re-evaluates and returns a clustering outcome.
+. ERS issues a Provisional Identifier due to execution window timeout; it sends no further message to ERE.
+. ERE completes the original request and returns a clustering outcome.
 . ERS updates the Decision Store to reflect the confirmed or replaced Cluster Assignment.
 
 == Special Requirements

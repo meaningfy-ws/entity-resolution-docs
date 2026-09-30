@@ -3,7 +3,7 @@
 
 [NOTE]
 ====
-Status: Accepted
+Status: Accepted (revised 2026-09-30 to match ERSys 1.1.0)
 ====
 
 == Context and Problem Statement
@@ -16,37 +16,41 @@ The interaction model must therefore:
 
 * Tolerate asynchronous variability without relying on strict ordering.
 * Avoid hidden coupling to timing or delivery guarantees.
-* Support provisional placements and user recommendations using a uniform contract.
+* Support user recommendations and exclusions using a uniform contract.
 
 Explicit delivery and message-structure rules are required so that both components behave deterministically under retries, concurrency, and late responses.
 
 == Decision
 
-// TODO: action-type vocabulary differs across ADRs — reconcile against ERS–ERE contract
 . *Communication Model*
 .. ERS–ERE interaction is asynchronous.
 .. The concrete transport technology is abstracted at this level.
-.. Delivery semantics are at-least-once.
-.. Duplicate messages are expected and must be tolerated.
+.. The transport gives no delivery guarantee: a message can be lost if a component stops or the broker fails, and there is no acknowledgement or dead-letter mechanism.
+.. Duplicate messages must nevertheless be tolerated.
 .. Message ordering is not guaranteed and must not be relied upon.
 .. All consumers must be idempotent.
+.. A lost request or response is recovered through the time-budget path of xref:AnnexeC-ADRs/adra2.adoc#adr-a2n[ADR-A2N] (a provisional identifier) and through re-submission or later ERE outcomes for the same mention.
+.. Message loss is an accepted risk.
 . *Correlation*
-.. All requests and responses are correlated using the mention identifier tuple (source_id, request_id, entity_type).
+.. Resolution requests and resolution responses are correlated using the mention identifier tuple (source_id, request_id, entity_type).
 .. This tuple uniquely identifies the resolution context.
+.. Error responses from ERE carry only the `ere_request_id` of the failed request (or `unknown` when the request could not be parsed), not the mention identifier tuple.
+ERS logs them and does not change any Cluster Assignment; a caller still waiting falls back through the time-budget path.
 .. No additional implicit correlation mechanism shall be assumed.
 . *Unified Resolution Request Types*
 .. All interactions from ERS to ERE use a unified resolution envelope.
 .. Each message contains the following fields:
-... action_type
-... mention_identifiers
-... recommended_placement (optional cluster_id)
-... recommended_exclusions (optional list of cluster_id values)
-.. The following action types are defined:
-... resolve (when mention only is provided)
-... resolveConsideringRecommendation (+ recommended cluster IDs)
-... reResolveConsideringExclusions (+ excluded cluster IDs)
-... recluster (full cluster rebuild triggered autonomously by ERE, not ERS)
-.. Provisional placements and user actions are transmitted using the same message structure as initial resolution.
+... entity_mention (including the mention identifiers)
+... ere_request_id
+... timestamp
+... proposed_cluster_ids (optional list of cluster_id values)
+... excluded_cluster_ids (optional list of cluster_id values)
+.. The envelope carries no action type; the intent follows from which optional lists are filled:
+... plain resolution (neither list is filled),
+... recommendation (proposed_cluster_ids is filled),
+... exclusion (excluded_cluster_ids is filled).
+.. User actions are transmitted using the same message structure as initial resolution.
+.. There is no separate reclustering message type: outcomes the ERE initiates itself (for example after a cluster rebuild) arrive as ordinary unsolicited resolution responses on the response channel, with an `ere_request_id` carrying the `ereNotification:` prefix defined in the xref:ERS-ERE-Contract/interface.adoc[ERS–ERE contract].
 . *Response Handling*
 .. Responses from ERE contain the clustering outcome for the given mention context.
 .. ERS shall process responses idempotently.
@@ -72,13 +76,13 @@ Broker configuration, infrastructure tuning, and low-level transport guarantees 
 
 * Synchronous communication between ERS and ERE.
 * Asynchronous exactly-once delivery guarantees with strict ordering assumptions.
-* Asynchronous at-least-once delivery with idempotent consumers. _(Selected)_
+* Asynchronous delivery without delivery guarantees, with idempotent consumers and recovery through the time-budget path. _(Selected)_
 
 == Rationale
 
-At-least-once asynchronous delivery provides robustness without introducing excessive infrastructure complexity.
+Asynchronous delivery without acknowledgement or dead-letter infrastructure keeps the messaging layer simple; the provisional identifier path and later ERE outcomes bound the effect of a lost message.
 
-A unified message envelope simplifies reasoning about provisional placements, user recommendations, and initial resolution, since all are treated as resolution requests with optional recommendations.
+A unified message envelope simplifies reasoning about user recommendations, exclusions and initial resolution, since all are treated as resolution requests with optional cluster lists.
 
 Idempotent processing and correlation by mention identifier ensure deterministic behaviour under retries and concurrency.
 
@@ -88,6 +92,7 @@ Treating late responses as normal behaviour prevents hidden timing dependencies 
 
 * Both ERS and ERE must implement idempotent message handling.
 * The system must tolerate duplicate and out-of-order responses without divergence.
-* Provisional placements and user recommendations follow the same processing pipeline as initial resolution.
+* User recommendations and exclusions follow the same processing pipeline as initial resolution.
+* A lost message leaves the mention on its provisional or previous Cluster Assignment until a re-submission or a later ERE outcome updates it.
 * Messaging infrastructure may evolve without affecting clustering semantics, provided delivery assumptions remain consistent.
 * Changing delivery guarantees (for example to exactly-once semantics) would require a new architectural decision.

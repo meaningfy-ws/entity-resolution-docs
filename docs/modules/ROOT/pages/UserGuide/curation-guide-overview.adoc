@@ -3,7 +3,7 @@
 
 This guide is the curator's manual for the Curation Web Application: a graphical interface for reviewing entity resolution decisions and recording your feedback on them.
 
-The application is where you, as a curator, inspect the matches proposed by the system, decide whether each one is correct, and record your verdict. Your feedback guides the automatic resolution process — a human-in-the-loop step that improves the quality of future decisions.
+The application is where you, as a curator, inspect the matches proposed by the system, decide whether each one is correct, and record your verdict. Your feedback is forwarded to the automatic resolution process — a human-in-the-loop step; the resolution engine decides whether and how to act on it.
 
 == Start Here
 
@@ -46,7 +46,7 @@ See also xref:UserGuide/curation-guide-overview.adoc#troubleshooting[Troubleshoo
 
 == Purpose
 
-The application gives curators a way to inspect and evaluate the automatic entity resolution decisions produced by the resolution engine. It supports a human-in-the-loop approach: curator feedback is fed back into the system to guide future automatic resolution.
+The application gives curators a way to inspect and evaluate the automatic entity resolution decisions produced by the resolution engine. It supports a human-in-the-loop approach: curator feedback is forwarded to the resolution engine as recommendations, and the engine remains the authority for the resulting placement.
 
 == Capabilities
 
@@ -65,8 +65,9 @@ From your point of view as a curator, a review cycle runs as follows:
 . A decision waiting for review appears in the Decisions Queue. Each decision is a proposed cluster match for an entity mention, with *confidence* and *similarity* scores reflecting the engine's certainty.
 . You open a decision and compare the entity mention against the proposed cluster.
 . You record your verdict — *Accept* the top candidate, *Select* an alternative cluster, or *Reject* all candidates.
-. Your feedback is stored and forwarded to the engine, which uses it when re-evaluating future decisions.
-. Once the engine acts on your feedback and updates a previously reviewed decision, that decision may re-appear in the queue, annotated as *Needs re-review*, indicating it requires another look.
+. Your feedback is stored and forwarded to the engine as a recommendation; the engine decides whether to change the placement. Forwarding is best effort, and with the Basic ERE, the reference engine, recommendations do not change the placement.
+. You can record one action per placement; the decision accepts no further action until the engine returns a changed placement for it.
+. When the engine changes the placement of a previously reviewed decision, that decision may re-appear in the queue, annotated as *Needs re-review*, indicating it requires another look.
 . At any time you can open the Action History to review past decisions and their outcomes.
 
 == Application Pages
@@ -143,7 +144,7 @@ Common situations curators meet, and what to do about them:
 | There are no decisions matching the active filters. Clear or widen the filters; if the list is still empty, there is nothing pending to review right now.
 
 | An action cannot be recorded
-| Another user may have already reviewed the same decision, or it is no longer pending. Refresh the list and continue with the next decision.
+| Another user may have already reviewed the same decision, or it is no longer pending, or it has already been curated and the engine has not changed its placement since (only one action per placement is accepted). Refresh the list and continue with the next decision.
 
 | You cannot reach Decisions or History
 | Your account may be verified but not active, or not verified at all. Contact your administrator.

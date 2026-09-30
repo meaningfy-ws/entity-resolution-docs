@@ -28,7 +28,7 @@ Operational concerns such as user management, authentication technology, monitor
 
 |UC-W1|Resolve Entity Mention|API Client (Originator)|Return a `cluster_id` (canonical identifier) for a submitted mention within the client time budget, using a provisional singleton when the ERS–ERE execution window expires|Establishes the main client-facing contract: dual time budgets, idempotent correlation by triad, provisional lifecycle, and latest-assignment-wins semantics
 |UC-W2|Recommend Resolution Update (Curation)|Curator|Submit recommendations (preferred placement and/or exclusions) for an existing mention; ERS forwards them to ERE for authoritative re-evaluation|Makes human input explicit and traceable, while preserving engine authority; ensures recommendations follow the same contract pattern as provisional placement
-|UC-W3|Synchronise Resolution Updates (refreshBulk)|API Client (Downstream Consumer / Originator)|Retrieve the set of mentions whose cluster placement changed since the last successful bulk refresh for a given `source_id`, including changes arising from engine reclustering|Encodes the system's reconciliation mechanism under mutable assignment: delta rule (`last_notification_date` < `last_update_date`), at-least-once tolerance, no push assumptions
+|UC-W3|Synchronise Resolution Updates (refreshBulk)|API Client (Downstream Consumer / Originator)|Retrieve the set of mentions whose cluster placement changed since the last successful bulk refresh for a given `source_id`, including changes arising from engine reclustering|Encodes the system's reconciliation mechanism under mutable assignment: delta rule (`last_notification_date` < `last_update_date`), duplicate tolerance, no push assumptions
 |UC-W4|Consult Resolution Statistics|Curator|Retrieve aggregated, read-only indicators of resolution and curation activity|Supports governance oversight and prioritisation without exposing sensitive record content or mutating authoritative state
 |===
 
@@ -54,7 +54,7 @@ On success, the Originator observes that:
 * ERS returns a *`cluster_id` (canonical identifier)* within the *client–ERS timeout budget*.
 * The returned identifier is within the *single identifier value space* used by ERSys (no secondary canonical registry identifiers).
 * If the ERE responds within the *ERS–ERE execution window*, ERS returns the *`cluster_id` produced by the ERE*.
-* If the ERE does not respond within the ERS–ERE execution window, ERS returns a *provisional singleton `cluster_id`* (still a valid canonical identifier at the moment of response) and submits the corresponding recommended placement to ERE for authoritative evaluation.
+* If the ERE does not respond within the ERS–ERE execution window, ERS returns a *provisional singleton `cluster_id`* (still a valid canonical identifier at the moment of response) and waits for the ERE outcome of the original request, which confirms or replaces it (no separate recommendation is sent).
 
 *Failure outcomes (externally observable)* +
 
@@ -66,9 +66,9 @@ If the request cannot be accepted or processed, the Originator observes that:
 *Rules and invariants that constrain UC-W1*
 
 * *Engine authority*: the ERE is authoritative for clustering outcomes and canonical identity materialisation; ERS does not decide equivalence, it records and exposes outcomes.
-* *Dual time budgets*: the client–ERS budget is enforced at the REST boundary; the ERS–ERE execution window is shorter and drives provisional issuance.
+* *Bounded time budget*: the ERS–ERE execution window bounds the response to a single-mention request and drives provisional issuance; a bulk request is bounded by a separate bulk budget.
 * *Provisional lifecycle is normal*: a canonical identifier may change after the initial response if the ERE later replaces the provisional assignment; this is expected and is reconciled via refreshBulk and subsequent lookups.
-* *Idempotency and correlation*: processing is correlated by the triad and must tolerate retries and at-least-once delivery patterns without creating inconsistent double state.
+* *Idempotency and correlation*: processing is correlated by the triad and must tolerate retries, duplicates and lost messages without creating inconsistent double state.
 * *Latest outcome wins (projection semantics)*: ERS exposes the latest authoritative cluster assignment it has recorded for the mention.
 
 *State touched (ERS-owned)*
@@ -120,8 +120,8 @@ If the recommendation cannot be accepted or processed, the curator observes that
 
 * *Recommendations are not authority*: curator actions do not directly modify canonical identity. They are inputs to ERE evaluation.
 * *Engine authority remains binding*: the ERE may accept or revert the recommendation; the resulting cluster assignment is authoritative.
-* *Same pattern as provisional placement*: recommendations are transmitted as resolution requests, not as a special governance backdoor.
-* *At-least-once tolerance and idempotency*: duplicate deliveries or retries must not create inconsistent recorded outcomes.
+* *Same pattern as resolution*: recommendations are transmitted as resolution requests, not as a special governance backdoor.
+* *Duplicate tolerance and idempotency*: duplicate deliveries or retries must not create inconsistent recorded outcomes.
 * *Latest outcome wins (projection semantics)*: ERS exposes the latest authoritative outcome it has recorded for the mention.
 
 *State touched (ERS-owned)*
@@ -181,7 +181,7 @@ If refreshBulk cannot be served, the client observes that:
 * *Delta semantics are about placement, not about engine events*: refreshBulk is driven by changes in the recorded mention-to-cluster assignment.
 * *Latest outcome wins*: the current `cluster_id` exposed for a mention is the latest authoritative assignment recorded by ERS.
 * *No push guarantee is implied*: refreshBulk is the supported synchronisation mechanism; clients should not assume callbacks or notifications.
-* *At-least-once tolerance upstream*: engine outcomes may arrive late or duplicated, but refreshBulk exposes a clean, deduplicated view based on recorded state.
+* *Duplicate tolerance upstream*: engine outcomes may arrive late or duplicated, but refreshBulk exposes a clean, deduplicated view based on recorded state.
 * *Scope is per `source_id`*: exposure history is tracked per client `source_id`; different consumers can observe deltas independently.
 
 *State touched (ERS-owned)*

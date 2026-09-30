@@ -60,7 +60,7 @@ The Admin initiates a curator access management action (grant, modify, suspend, 
 
 == Out of Scope
 
-* Credential storage and password management.
+* Credential storage and password management, except that with local authentication Admins set user passwords.
 * Configuration of external identity providers or SSO infrastructure.
 * Advanced identity governance workflows (approvals, recertification, role mining).
 * Fine-grained authorisation beyond the defined application roles.

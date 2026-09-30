@@ -3,7 +3,7 @@
 
 [NOTE]
 ====
-Status: Accepted
+Status: Accepted (revised 2026-09-30 to match ERSys 1.1.0)
 ====
 
 == Context and Problem Statement
@@ -16,29 +16,29 @@ The architecture requires explicit, side-effectful operations for corrective pro
 
 == Decision
 
-// TODO: action-type vocabulary differs across ADRs — reconcile against ERS–ERE contract
 . *Explicit Corrective Operations*
 .. Re-resolution and reclustering are explicit operations in ERE.
 .. ERS client lookup operations are strictly read-only and shall not trigger re-processing or state mutation.
 . *Re-resolution Requests*
 .. Re-resolution is an explicit user-triggered operation. It occurs when a user requests a new clustering exercise because none of the recommended clusters are suitable.
 .. Re-resolution is performed by sending a resolution request to ERE using the unified message envelope defined in xref:AnnexeC-ADRs/adrc2.adoc#adr-c2n[ADR-C2N]. Re-resolution may include:
-... recommended_placement (cluster_id)
-... recommended_exclusions (list of cluster_id values)
-.. These are recommendations only. ERE evaluates the request and returns a new clustering outcome.
+... proposed_cluster_ids (list of cluster_id values)
+... excluded_cluster_ids (list of cluster_id values)
+.. These are recommendations only. ERE may take them into account or ignore them, and returns its clustering outcome.
 .. ERS must persist and expose on lookup the latest cluster assignment returned by ERE.
 . *Reclustering (Full Rebuild) Operations*
 .. Reclustering represents a full rebuild of clusters performed autonomously by ERE.
 .. Reclustering is triggered and executed by ERE autonomously following its internal logic.
 .. ERS does not initiate reclustering.
-.. During reclustering, ERE emits updated clustering outcomes incrementally.
+.. During reclustering, ERE emits updated clustering outcomes incrementally, as unsolicited resolution responses on the response channel (see xref:AnnexeC-ADRs/adrc2.adoc#adr-c2n[ADR-C2N]).
+.. There is no separate reclustering message type.
 .. ERS receives these updates and integrates them using the same idempotent projection update rules as any other ERE response.
 . *No Lock or Governance Preservation Layer in ERS*
 .. ERS does not enforce positive or negative locks during corrective processing.
 .. User-submitted exclusions and placements are forwarded as recommendations only.
 .. ERE remains the sole authority for accepting, ignoring, or superseding such recommendations.
 . *Uniform Integration Model*
-.. Outcomes from resolve, resolveConsideringRecommendation, reResolveWithExclusions, and recluster are integrated using the same projection update mechanism.
+.. Outcomes of plain resolution, recommendation and exclusion requests, and outcomes initiated by ERE itself are integrated using the same projection update mechanism.
 .. The latest ERE outcome replaces any prior projection for the same mention.
 
 == Scope and Applicability

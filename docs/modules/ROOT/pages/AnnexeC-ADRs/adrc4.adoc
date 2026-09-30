@@ -1,0 +1,70 @@
+[#adr-c4n]
+= ADR-C4N — Outcome Notification Across ERS Replicas
+
+[NOTE]
+====
+Status: Accepted (2026-09-30)
+====
+
+== Context and Problem Statement
+
+The ERS REST API may run as several replicas behind a load balancer.
+
+All replicas consume ERE responses from one shared response queue, and any replica may take any response.
+
+A synchronous caller, however, waits in the replica that received its request and published it to the ERE (see xref:AnnexeC-ADRs/adrc1.adoc#adr-c1n[ADR-C1N]).
+
+Without coordination, a response is usually taken by a replica other than the one where the caller is waiting.
+The waiting replica does not learn of the outcome within the execution window, and the caller receives a provisional identifier although the ERE answered in time.
+
+The architecture must therefore let the waiting replica learn of an outcome taken by any replica, without making the replicas share state beyond the stores they already use.
+
+== Decision
+
+. *Store First*
+.. The replica that takes an ERE response writes the resulting decision to the Decision Store before any notification is sent.
+. *Local and Cross-Replica Wake-Up*
+.. If that replica has a local waiter for the mention, it wakes it and sends no notification.
+.. Otherwise it publishes the mention key on a Redis Pub/Sub notification channel.
+.. Every replica subscribes to this channel on its own connection and wakes its local waiter for the notified mention, if it has one.
+.. A woken waiter reads the outcome from the Decision Store.
+. *Subscriber Lifecycle*
+.. A replica starts serving requests only after its subscriber is ready, within a configured startup timeout.
+.. When the subscriber connection drops, the replica reconnects with backoff.
+. *Fallback Re-Read*
+.. Before issuing a provisional identifier at the end of the execution window, the waiter reads the Decision Store once more.
+If a decision is found, it is returned instead of a provisional identifier.
+
+== Scope and Applicability
+
+This decision applies to the ERS REST API when it runs as one or more replicas and to the delivery of ERE outcomes to synchronous callers.
+
+It does not change the ERS–ERE message contract or its delivery semantics (see xref:AnnexeC-ADRs/adrc2.adoc#adr-c2n[ADR-C2N]).
+
+It does not cover scaling of the ERE, which must remain a single instance.
+
+The notification channel name and the subscriber startup timeout are configuration; see xref:Installation/environment-variables.adoc#ers-api[Environment Variables].
+
+== Considered Options
+
+* Route each ERE response to the replica that sent the request (one response queue per replica).
+* Let waiters poll the Decision Store until the execution window expires.
+* Shared response queue, store-first write and a Pub/Sub notification to all replicas. _(Selected)_
+
+== Rationale
+
+A shared response queue keeps the ERS–ERE contract unchanged: the ERE does not need to know how many ERS replicas exist or which one sent a request.
+
+Writing the decision before notifying makes the Decision Store the only place where a waiter reads the outcome, so a notification carries only the mention key and never becomes a source of truth.
+
+A Pub/Sub notification wakes the waiting replica as soon as the outcome is stored, without the load and latency of polling.
+
+The final re-read covers notifications that do not arrive, so the mechanism does not need delivery guarantees of its own.
+
+== Consequences
+
+* Pub/Sub delivery is fire-and-forget: a notification sent while a replica is reconnecting is lost for that replica.
+* A lost notification degrades gracefully: the waiter finds the stored decision on its final re-read, and otherwise the caller receives a provisional identifier that a later ERE outcome confirms or replaces.
+* Replicas share no state other than the Decision Store and Redis.
+* Every replica depends on Redis for notifications in addition to messaging; a single-replica deployment never publishes a notification.
+* ERE scaling is not addressed by this decision.

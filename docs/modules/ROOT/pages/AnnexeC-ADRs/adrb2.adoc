@@ -3,7 +3,7 @@
 
 [NOTE]
 ====
-Status: Accepted
+Status: Accepted (revised 2026-09-30 to match ERSys 1.1.0)
 ====
 
 == Context and Problem Statement
@@ -30,13 +30,14 @@ A simplified decision model is therefore required that:
 .. This projection is overwritten whenever a new clustering outcome is received from ERE.
 . *No Governance Lifecycle in ERS*
 .. ERS does not implement a decision lifecycle such as proposed, accepted, rejected, or confirmed.
-.. ERS registers proposals (including provisional placements and user recommendations) and forwards them to ERE for authoritative governance.
-.. ERE evaluates proposals and returns the authoritative clustering outcome.
+.. ERS registers proposals (user recommendations and exclusions) and forwards them to ERE for authoritative governance.
+.. ERE returns the authoritative clustering outcome.
 .. ERS persists and exposes the latest clustering outcome returned by ERE.
 . *User Actions as Recommendations*
 .. User actions (such as move or exclusion requests) are not authoritative decisions.
 .. ERS records user actions and forwards them to ERE as resolution requests with recommendations.
-.. ERE evaluates these recommendations and returns a new clustering outcome.
+.. Forwarding is best-effort: the user action is recorded first; if ERS cannot publish the request to ERE, the failure is logged, the action is still reported as successful, and the Cluster Assignment stays unchanged.
+.. ERE may take these recommendations into account or ignore them, and returns its clustering outcome.
 .. ERS must persist and expose the clustering outcome returned by ERE, even if it differs from the user recommendation.
 . *User Action Log*
 .. ERS maintains a separate user action log.
@@ -47,6 +48,8 @@ A simplified decision model is therefore required that:
 .. ERS does not implement positive or negative locks.
 .. No curator action is immutable with respect to subsequent ERE clustering outcomes.
 .. Stability of clustering assignments is determined solely by ERE behaviour and identifier non-reuse rules.
+.. ERS accepts one curator action per placement: after a curator action on a decision, further curator actions on it are rejected as already curated until ERE returns a changed outcome for that mention.
+This guard applies only to curator actions; it is not a lock on the Cluster Assignment and does not restrict ERE outcomes.
 
 == Scope and Applicability
 

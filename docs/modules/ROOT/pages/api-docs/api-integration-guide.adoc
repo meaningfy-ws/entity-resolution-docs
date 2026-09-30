@@ -192,7 +192,7 @@ To follow placement changes without re-submitting, use `/refresh-bulk`; see xref
 
 == Request Size
 
-ERS rejects a mention whose `content` exceeds a configured maximum size (default: 1 MiB).
+ERS rejects a mention whose `content` exceeds a configured maximum size (default: 1 MiB) with HTTP 400 and `PARSING_FAILED`.
 Bulk requests carry many mentions and can be far larger: any proxy, load balancer or gateway in front of the ERS REST API must accept request bodies of at least 50 MB, otherwise large bulk requests are rejected with HTTP 413 before they reach ERS.
 
 [#error-reference]
@@ -210,69 +210,105 @@ All error responses use a JSON body with an `error_code` field (machine-readable
 
 See xref:ERSys/examples.adoc#error-response[Examples — Error Response] for additional error response examples.
 
+=== ERS REST API Status Codes
+
+Successful calls return one of the following statuses:
+
+* `/resolve`: `200` when the result is canonical, `202` when a provisional identifier was issued.
+* `/resolve-bulk`: `200` when all results are canonical, `202` when all are provisional, `207` when the outcomes are mixed or any item carries an error.
+
+Items of a bulk response carry the same per-item error codes as the corresponding single requests.
+
 === ERS REST API Error Codes
 
-[cols="2,3"]
+[cols="2,1,3"]
 |===
-| Code | Meaning
+| Code | HTTP status | Meaning
 
 | `VALIDATION_ERROR`
+| 400
 | The request body or query parameters failed schema validation.
 Check required fields, field types, and enum values.
 
 | `IDEMPOTENCY_CONFLICT`
+| 422
 | A previous request submitted the same mention triad `(source_id, request_id, entity_type)` with different content.
 ERS does not overwrite existing mention data; reuse the original content or choose a different triad.
 
 | `PARSING_FAILED`
-| The entity mention `content` could not be parsed according to the declared `content_type`.
+| 400
+| The entity mention `content` could not be parsed according to the declared `content_type`, or it exceeds the configured maximum size.
 Verify that the RDF/Turtle (or other format) is well-formed and matches the expected entity type structure.
 
 | `MENTION_NOT_FOUND`
+| 404
 | No mention matching the requested triad was found.
 The mention has not been submitted yet, or the triad values do not match exactly.
 
 | `SOURCE_NOT_FOUND`
+| 404
 | The `source_id` supplied to `/refresh-bulk` is not known to ERS.
 No mentions from that source have been submitted.
 
 | `SERVICE_ERROR`
+| 500
 | An unexpected internal error occurred.
 Retry with exponential back-off; if the problem persists, contact the service operator.
 
 | `SERVICE_TIMEOUT`
-| The ERE did not respond within the configured time budget.
-A provisional identifier was issued for the affected mention.
-The mention will be re-evaluated when the ERE becomes available.
+| 504
+| A bulk request exceeded the bulk time budget.
+No results are returned for the request; provisional identifiers already issued for some of its mentions remain stored.
+Retrying is safe because replays are idempotent.
+
+| `SERVICE_UNAVAILABLE`
+| 503
+| A backing service (document store, Redis or messaging channel) is not available.
+No provisional identifier is issued; retry later.
+
+| `APPLICATION_ERROR`
+| 400
+| The request could not be processed because of an application error not covered by a more specific code.
 
 |===
 
 === Curation REST API Error Codes
 
-[cols="2,3"]
+[cols="2,1,3"]
 |===
-| Code | Meaning
+| Code | HTTP status | Meaning
 
 | `VALIDATION_ERROR`
-| The request body or query parameters failed schema validation.
+| 400
+| The request body or query parameters failed schema validation, or an entity type or pagination cursor is invalid.
 
 | `NOT_FOUND`
+| 404
 | The requested resource (decision, user, or cluster) does not exist.
 
 | `AUTHENTICATION_ERROR`
+| 401
 | Authentication failed: invalid credentials, missing or expired access token.
 
 | `AUTHORIZATION_ERROR`
-| The authenticated user does not have permission to perform the requested action.
+| 403
+| The authenticated user does not have permission to perform the requested action, or the account is deactivated.
 
 | `CONFLICT`
-| The request conflicts with existing state — for example, actioning a decision that has already been actioned.
+| 409
+| The request conflicts with existing state — for example, actioning a decision whose current placement has already been curated, assigning a cluster that is not one of the decision's candidates, or deactivating or demoting the last active administrator.
 
 | `APPLICATION_ERROR`
-| An unexpected internal error occurred.
+| 400
+| The request could not be processed because of an application error not covered by a more specific code.
 
 | `SERVICE_UNAVAILABLE`
+| 503
 | A required backing service (database) is not available.
+
+| `SERVICE_ERROR`
+| 500
+| An unexpected internal error occurred.
 
 |===
 

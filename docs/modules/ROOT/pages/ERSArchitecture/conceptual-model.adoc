@@ -171,7 +171,7 @@ There is no explicit rebuild request in the normative asynchronous model. Reclus
 
 Engine responses specialise *EREResponse*. A successful *EntityMentionResolutionResponse* returns one or more *ClusterReference* candidates for a single *EntityMentionIdentifier*. Each *ClusterReference* contains a `cluster_id`, `confidence_score`, and `similarity_score`. The `cluster_id` constitutes the canonical identifier. Clustering authority resides in *ERE*.
 
-Asynchronous delivery follows at-least-once semantics. Messages may be duplicated and may arrive out of order. Both ERS and ERE must implement idempotent processing based on the correlation triad so that repeated or reordered messages do not alter final clustering state. The `ere_request_id` supports disambiguation of concurrent or repeated requests and enables safe handling of engine-initiated notifications.
+Asynchronous delivery gives no delivery guarantee. Messages may be duplicated, may arrive out of order, and may be lost. Both ERS and ERE must implement idempotent processing based on the correlation triad so that repeated or reordered messages do not alter final clustering state. The `ere_request_id` supports disambiguation of concurrent or repeated requests and enables safe handling of engine-initiated notifications.
 
 The separation between REST and engine messaging enforces architectural clarity:
 

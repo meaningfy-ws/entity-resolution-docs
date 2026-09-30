@@ -21,16 +21,17 @@ Canonical identity is defined as a cluster managed by the Entity Resolution Engi
 
 Cluster Assignment for a mention may change over time. The client invokes refreshBulk for its `source_id` to retrieve the set of mentions whose recorded placement changed since the last successful synchronisation point for that `source_id`. refreshBulk is strictly read-only and does not trigger resolution, re-resolution, recommendation handling, or reclustering. It is served from ERS state and does not synchronously depend on ERE availability.
 
+A mention's first recorded Cluster Assignment is returned to the client in the resolve response and is not exposed again by refreshBulk. refreshBulk reports only changes to an existing Cluster Assignment; on the first call for a `source_id`, only such changed mentions are returned.
+
 Recorded placement changes are treated uniformly regardless of origin and may come from:
 
-* direct resolution responses from ERE,
 * replacement of a Provisional Identifier by an authoritative ERE outcome,
-* user recommendation or exclusion flows resulting in a new authoritative ERE outcome,
+* curator recommendation or exclusion flows resulting in a new authoritative ERE outcome,
 * engine-initiated reclustering (large-scale recalculation performed internally by ERE for a defined scope, for example an entity type).
 
 Reclustering uses the same asynchronous integration rules as standard resolution responses. No special governance path or override mechanism exists; its outcomes become observable through this same delta mechanism as any other assignment change.
 
-Delta computation follows the timestamp rule: `last_notification_date < last_update_date`.
+Delta computation follows the timestamp rule: `last_notification_date < last_update_date`. The synchronisation watermark `last_notification_date` is kept by ERS per `source_id`; the client does not supply it.
 
 == Preconditions
 
@@ -54,7 +55,8 @@ ERS continues to operate in normal incremental mode during and after engine recl
 
 == Minimal Guarantees (On Failure)
 
-* If refreshBulk cannot be served (authorisation failure, invalid `source_id`, temporary unavailability), ERS returns an explicit error.
+* If refreshBulk cannot be served (invalid request, temporary unavailability, or, where a gateway in front of the ERS API enforces access control, authorisation failure), ERS returns an explicit error.
+* If the `source_id` is unknown, ERS returns a not-found error.
 * The synchronisation watermark is not advanced unless a response is successfully produced according to the API contract.
 * Previously recorded Cluster Assignments remain in place until replaced by authoritative outcomes from ERE; no partial or inconsistent Cluster Assignment is exposed for any individual mention.
 
@@ -78,6 +80,8 @@ The detailed flow, extensions, and edge cases (including empty result sets and l
 * Read-only by construction: this use case must not mutate decision state, placements, or trigger clustering activity.
 * Latest outcome wins: the current cluster identifier exposed for a mention is the latest authoritative assignment recorded by ERS.
 * Scope is per `source_id`: exposure history is tracked per client `source_id`; different consumers observe deltas independently.
+* Single consumer per `source_id`: refreshBulk for a given `source_id` must be called by one sequential consumer.
+* Paged delivery: large result sets are returned in pages; a pagination that is abandoned before its final page is delivered again from the start on the next call. Delivery to the client is therefore at-least-once, and clients must tolerate duplicate entries.
 
 == Frequency of Occurrence
 

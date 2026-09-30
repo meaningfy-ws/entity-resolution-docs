@@ -38,9 +38,7 @@ alt ERE returns within ERS to ERE execution window
     ERS ->> ERS: Process resolution result<br/>(persist Resolution Decision and current assignment)
     ERS -->> Originator: Canonical cluster_id
 else ERE does not return within ERS to ERE execution window
-    ERS ->> ERS: Create provisional singleton and persist decision
-    ERS ->> MessagingMiddleware: Publish placement instruction<br/>(assign mention to singleton cluster_id)
-    MessagingMiddleware ->> ERE: Deliver placement instruction (async)
+    ERS ->> ERS: Create provisional singleton and persist decision<br/>(no further message to ERE)
     ERS -->> Originator: Provisional cluster_id
 else Validation failure or internal error
     ERS -->> Originator: Error
@@ -52,8 +50,8 @@ MessagingMiddleware ->> ERS: Deliver resolution result (async)
 ERS ->> ERS: Process resolution result<br/>(persist Resolution Decision and current assignment)
 
 %% Phase 3 - Bulk lookup by source (UC-B1.3)
-Originator ->> ERS: Bulk lookup by source_id<br/>(since last_seen_timestamp)
-ERS ->> ERS: Return unseen updates and mark exposed<br/>(by source_id + Originator)
+Originator ->> ERS: Bulk lookup by source_id
+ERS ->> ERS: Return changes since the source_id watermark<br/>(last_notification_date kept by ERS)
 ERS -->> Originator: Resolution update set<br/>(cluster_id assignments + metadata)
 
 ----
@@ -64,22 +62,22 @@ The resolution cycle is organised into three conceptual phases, each correspondi
 
 The Originator submits an Entity Mention together with the correlation triad _(source_id, request_id, entity_type)_ to ERS via its public API. ERS validates the request, registers it under idempotent semantics, and initiates a resolution interaction with the ERE through asynchronous messaging.
 
-Two time budgets apply, and they are kept separate because they answer two different questions: how long the client is willing to wait, and how long ERS is willing to wait for the engine during that same call.
+Each request is bounded by a time budget:
 
-* *Client–ERS timeout budget*: the maximum time ERS may take to respond to the client.
-* *ERS–ERE execution window* (shorter): the time ERS is willing to wait for an engine outcome during the synchronous request.
+* *Single-mention budget*: one budget serves both as the *ERS–ERE execution window*, the time ERS waits for an engine outcome, and as the bound on the ERS response. The client's own timeout must be longer.
+* *Bulk budget*: the mentions of a bulk request are resolved concurrently, each within the execution window, and the whole request is bounded by a separate bulk budget. A bulk request that exceeds it fails as a whole with a timeout error.
 
 If an authoritative outcome is received from the ERE within the ERS–ERE execution window, ERS records the latest decision for the mention and returns the *`cluster_id` (canonical identifier)* produced by the ERE.
 
-If no engine outcome is received within the ERS–ERE execution window, ERS issues a *provisional singleton `cluster_id`* in the same identifier value space, records it as the current placement for the mention, returns it to the client within the client budget, and forwards that recommended placement to the ERE as a standard resolution request variant. Deterministic derivation applies to provisional singleton identifiers only; multi-member cluster identifiers are produced by the ERE.
+If no engine outcome is received within the ERS–ERE execution window, ERS issues a *provisional singleton `cluster_id`* in the same identifier value space, records it as the current placement for the mention, and returns it to the client. ERS sends no further message to the ERE, which keeps processing the original request; because the provisional identifier is derived with the same rule the ERE uses for a new singleton, a singleton outcome confirms it and any other outcome replaces it. Deterministic derivation applies to provisional singleton identifiers only; multi-member cluster identifiers are produced by the ERE.
 
-If validation fails, or ERS encounters an internal error before it can produce a compliant response, ERS returns an explicit error. There is no silent-success behaviour.
+If validation fails, a backing service is unavailable, or ERS encounters an internal error before it can produce a compliant response, ERS returns an explicit error. There is no silent-success behaviour.
 
 ==== Phase 2: Authoritative assessment and integration (asynchronous)
 
 ERS publishes resolution requests to the ERE via the asynchronous technical contract. The ERE consumes requests independently, performs its internal clustering and scoring, and publishes *authoritative clustering outcomes* back to ERS (primary cluster assignment plus alternatives, where provided).
 
-Results may arrive within the synchronous execution window or after the client-facing request has already completed. The model tolerates at-least-once delivery, duplicates, and late arrivals, because messaging middleware in real deployments behaves this way. The ERS responsibilities are therefore:
+Results may arrive within the synchronous execution window or after the client-facing request has already completed. The model tolerates duplicates, late arrivals and lost messages, because messaging middleware in real deployments behaves this way. The ERS responsibilities are therefore:
 
 * process outcomes idempotently (correlated by the triad),
 * record only the *latest decision record per mention*,
@@ -94,15 +92,15 @@ This phase also covers outcomes that originate from engine-initiated reprocessin
 At any later time, clients may observe the latest recorded placement using read-only operations. Two observation styles apply:
 
 * *Lookup* for a specific mention (read-only, does not trigger resolution).
-* *refreshBulk* for a `source_id`, which returns mentions whose placement changed since the last successful exposure for that `source_id`, based on the delta rule `last_notification_date` < `last_update_date`.
+* *refreshBulk* for a `source_id`, which returns mentions whose placement changed since the last successful exposure for that `source_id`, based on the delta rule `last_notification_date` < `last_update_date`. A mention's first assignment, already returned in the resolve response, is not included.
 
 Convergence is an integration pattern rather than a hidden internal guarantee: the system keeps recording authoritative outcomes, and clients periodically pull deltas to reconcile their downstream state.
 
 *What this overview makes explicit*
 
 * *Triad correlation and idempotency.* Every interaction is tied to _(source_id, request_id, entity_type)_ so retries and duplicates can be handled deterministically.
-* *Two time budgets and provisional issuance.* ERS responds within the client budget, but it waits only up to the shorter ERS–ERE execution window before issuing a provisional singleton `cluster_id`.
-* *At-least-once outcome handling.* Engine outcomes may arrive late or duplicated, including unsolicited reclustering outcomes, and ERS integrates them idempotently as the latest decision per mention.
+* *Time budgets and provisional issuance.* ERS waits for the engine only up to the ERS–ERE execution window, which also bounds a single-mention response, before issuing a provisional singleton `cluster_id`.
+* *Tolerant outcome handling.* Engine outcomes may arrive late or duplicated, including unsolicited reclustering outcomes, and ERS integrates them idempotently as the latest decision per mention.
 * *Client reconciliation via refreshBulk.* Because the latest authoritative assignment can evolve over time, clients synchronise placement changes through the supported bulk delta mechanism.
 
 The remainder of Section 8 refines this overview through focused behavioural spines (A–D), each illustrating a stable interaction pattern and its authoritative state effects, with detailed variants provided as associated Mermaid artefacts.

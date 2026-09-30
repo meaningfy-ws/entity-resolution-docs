@@ -3,7 +3,7 @@
 
 [NOTE]
 ====
-Status: Accepted
+Status: Accepted (revised 2026-09-30 to match ERSys 1.1.0)
 ====
 
 == Context and Problem Statement
@@ -20,27 +20,34 @@ Without an explicit delta exposure contract, clients cannot reliably maintain co
 
 == Decision
 
-// TODO: action-type vocabulary differs across ADRs — reconcile against ERS–ERE contract
 . *Delta-Based Synchronisation Mechanism*
 .. ERS exposes a refreshBulk operation for client synchronisation.
 .. The operation returns mentions whose cluster assignment has changed since the client's last successful notification point.
 . *Delta Computation Rule*
 .. A mention is included in the response when last_notification_date < last_update_date, where:
-... last_update_date reflects the most recent cluster assignment received from ERE.
+... last_update_date reflects the most recent change to an existing cluster assignment.
 ... last_notification_date reflects the most recent refreshBulk interaction for the given source_id.
+.. The first recorded assignment of a mention is returned to the client in the resolution response and is not a delta source.
+On the first refreshBulk call of a source, only mentions whose assignment has changed since their first assignment are returned.
 . *Returned Data*
 .. Each delta entry contains:
-... request_id
-... canonical_identifier (cluster_id)
-... context_id
+... the mention identifier tuple (source_id, request_id, entity_type)
+... the current cluster reference (cluster_id) with its scores
+... the time of the last update
 .. The returned cluster_id always reflects the latest projection stored in ERS.
 . *Sources of Change*
-.. Changes reflected in deltas may originate from:
-... resolve
-... reResolveConsideringRecommendation
-... reResolveWithExclusions
-... recluster
-... Provisional replacement by ERE
+.. Changes reflected in deltas replace an existing assignment and may originate from:
+... Provisional replacement by ERE (a resolution outcome that replaces a provisional identifier)
+... outcomes of curator recommendations or exclusions
+... reassignments initiated by ERE itself (for example after reclustering)
+.. A plain resolution outcome counts only where it replaces an existing assignment.
+. *Paging and Watermark Protocol*
+.. The watermark (last_notification_date) is kept server-side per source_id.
+.. Results are paged: the client sets a page size (`limit`, bounded by a configured maximum) and continues with the opaque `continuation_cursor` while `has_more` is true.
+.. The watermark advances only when the final page of a pagination is produced; an empty result also advances it.
+.. A pagination that is abandoned before its final page is delivered again from the start on the next call without a cursor, so clients must tolerate duplicate entries.
+.. Each source_id must have a single, sequential refreshBulk consumer.
+.. An unknown source_id is reported as an error (source not found).
 . *No Historical Lineage Exposure*
 .. refreshBulk exposes only the current cluster assignment.
 .. It does not expose previous cluster_id values, merge graphs, split history, or version chains.

@@ -22,6 +22,8 @@ The ERE changes how it uses memory and matches entities:
 
 The database tables have changed and an existing database is not migrated: the ERE refuses to start on a database created by an earlier version.
 Its matching state is discarded and rebuilt from new requests.
+The ERS keeps the cluster identifiers it already holds and does not re-send decided mentions, so it cannot rebuild the ERE database.
+New mentions of entities already known to the ERS form new clusters beside the existing ones; the ERE does not merge them.
 The `resolver.yaml` file lives on the configuration volume, not in the image; if it is not replaced, the ERE runs with the previous matching rules and threshold.
 
 . Check that Redis runs version 6.2 or newer.

@@ -46,8 +46,12 @@ When a valid `EntityMentionResolutionRequest` arrives, the service executes five
 === Step 1 — Idempotency Check
 
 The service first checks whether the incoming entity mention has already been resolved.
-If a cluster assignment already exists for this mention identifier, the cached result
+If a cluster assignment already exists for this mention identifier, the stored assignment
 is returned immediately and no further processing occurs.
+The candidate list of that answer is rebuilt from the currently stored links, so its
+scores and alternatives may differ from those of the first answer.
+A re-submission of the same mention identifier with different content is rejected with
+an `EREErrorResponse` (`ConflictError`).
 
 This satisfies the idempotent processing requirement defined in the contract:
 re-submitting the same request produces the same outcome without duplicating state.
@@ -75,6 +79,8 @@ through blocking.
 All pairwise scores of the request are used to build the candidate list for the
 response, *regardless of whether they meet the clustering threshold*. Only the best
 scores of each mention (up to the top-N, default: 100) are persisted as mention-link records.
+A very low match-weight floor (default: `-10`) keeps almost-certain non-matches out of
+the candidate list.
 
 ==== Cold Start and Learned Priors
 
@@ -110,6 +116,9 @@ order. Requests taken from the queue together (see <<Runtime Behaviour>>) can ma
 each other; they are still assigned in arrival order. There is no retrospective
 re-clustering when new evidence arrives. This makes the algorithm fast and predictable,
 at the cost of order-sensitivity.
+Replaying the same mentions in another order (for example, after a store reset) can give
+the same organisations different cluster identifiers; the identifier derivation itself
+stays deterministic.
 
 ==== Canonical Identifier Derivation
 
@@ -165,11 +174,12 @@ the `ere_responses` channel.
 | Cluster identifiers conform to the `SHA256(source_id, request_id, entity_type)` rule.
 
 | Error responses
-| Malformed requests or internal failures produce an `EREErrorResponse`.
+| Malformed requests, internal failures or conflicting re-submissions produce an `EREErrorResponse`.
 
 | Multiple candidates with scores
 | The response includes up to 100 ranked candidate clusters, each with
 a `confidence_score` and `similarity_score`.
+Both carry the same value: the pairwise match probability.
 
 | Organisation entity type
 | The service is configured for `http://www.w3.org/ns/org#Organization`.
@@ -194,6 +204,9 @@ Each batch is stored in one transaction and its responses are published together
 request order. If a batch fails, it is processed again one request at a time, so one
 faulty request does not fail the others. The service remains a single consumer.
 
+Under a backlog, requests can wait in the queue longer than the ERS execution window.
+ERS then returns provisional identifiers and integrates the ERE answer when it arrives.
+
 === Storage and memory
 
 Mentions, similarity scores and cluster assignments are kept in an embedded DuckDB
@@ -204,6 +217,10 @@ writable volume and be monitored together.
 
 Because the scoring library reads the stored mentions directly, a restart does not
 lose the search space: the service resumes with all known mentions (a warm start).
+
+Requests already taken from the queue are lost if the service stops in the middle of a
+batch; ERS keeps the provisional identifiers it issued for them.
+With in-memory storage (`ERE_DUCKDB_STORAGE=memory`), the store is reset on every restart.
 
 === Logging
 
@@ -219,6 +236,12 @@ An existing database is not migrated: on start, the service refuses a database c
 before this change and reports it as outdated. The operator deletes the database file
 and restarts the service; the model is trained again once the training threshold is
 reached.
+
+ERS answers replays from its Decision Store and never re-sends decided mentions, so it
+cannot rebuild the ERE store.
+After the database is deleted (or otherwise lost or reset), ERS keeps the cluster
+identifiers it already holds, although the ERE no longer knows them, and new mentions of
+the same entities form new clusters beside them; the basic ERE does not merge them.
 
 == What This Implementation Does Not Support
 
@@ -239,6 +262,16 @@ makes its own decision based solely on the incoming mention and its internal sta
 
 This behaviour doesn't violate the contract, as it treats these fields as *advisory*: an ERE is not
 required to honour them, and it remains the ultimate clustering authority.
+
+As a consequence, a recommendation for an already-resolved mention is answered from the
+stored state, so curator actions in the Link Curation UI do not change placements when
+the basic ERE is deployed.
+An ERE that honours these fields may act on them.
+
+=== Resolution Timeout Option
+
+The basic ERE does not implement the `resolution_timeout` option described in the
+xref:ERS-ERE-Contract/supplement.adoc#configuration[contract supplement].
 
 === Spontaneous Update Notifications
 

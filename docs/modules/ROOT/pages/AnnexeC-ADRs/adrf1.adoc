@@ -3,7 +3,7 @@
 
 [NOTE]
 ====
-Status: Accepted
+Status: Accepted (revised 2026-09-30 to match ERSys 1.1.0)
 ====
 
 == Context and Problem Statement
@@ -36,6 +36,7 @@ This ADR clarifies what the payload contract is responsible for — and equally 
 .. Failure to extract preview data shall not block resolution, re-resolution, or reclustering.
 . *Candidate Handling and Top-N Pruning*
 .. ERE returns candidate clusters and scores without boundary-level threshold enforcement.
+.. Candidate generation inside ERE (for example blocking, a minimum-score floor or a bounded result size) is engine-internal and allowed, provided the cluster to which the mention is assigned is always returned.
 .. ERS may prune candidates internally to a configured top-N set for storage and UI usage.
 .. Thresholds used for automated decisions or filtering are internal ERS policies and do not redefine identity semantics.
 .. Only the final cluster assignment returned by ERE defines the canonical identifier.
