@@ -15,11 +15,22 @@ This use case describes how a Curator consults aggregated, read-only statistics 
 
 The value is to provide an aggregated and non-intrusive view of clustering and re-evaluation activity so that Curators can assess workload and operational dynamics without inspecting individual records. The statistics provide high-level indicators derived from the current operational state of the system. They are intended for situational awareness and workload prioritisation, not for auditing or governance control.
 
-Statistics may include, per entity type and optionally per time window:
+Statistics are grouped in two sets:
 
-* total number of Entity Mentions,
-* total number of canonical clusters (cluster identifiers) in the decisions store,
-* number of recent resolution requests (e.g. last day).
+* registry statistics:
+** total number of Entity Mentions,
+** total number of canonical clusters (cluster identifiers) in the Decision Store,
+** cluster size distribution: average, median, 95th percentile and maximum cluster size,
+** number of singleton clusters,
+** total number of distinct resolution requests;
+* curation statistics:
+** total number of decisions,
+** number of decisions whose top (current) cluster was accepted,
+** number of decisions assigned to an alternative cluster,
+** number of decisions whose clusters were all rejected.
+
+Statistics may be filtered by entity type and by time frame.
+The time frame applies only to the counts of Curator actions; the cluster size distribution is always computed over the whole Decision Store.
 
 All statistics are aggregated counts. No individual Entity Mention, cluster, or decision details are exposed through this use case.
 
@@ -36,7 +47,7 @@ A Curator works with the Link Curation app which always shows resolution statist
 
 == Success Guarantee (Postconditions)
 
-* Aggregated statistics are presented to the Curator, optionally scoped by entity type and timeframe.
+* Aggregated statistics are presented to the Curator, optionally filtered by entity type and time frame.
 * Statistics reflect the observable state of the system at the time of retrieval.
 * No system state is modified.
 

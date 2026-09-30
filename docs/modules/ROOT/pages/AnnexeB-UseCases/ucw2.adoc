@@ -21,12 +21,14 @@ Canonical identity is defined as a cluster managed by the Entity Resolution Engi
 
 A Curator may request re-evaluation in one of two forms:
 
-. *Placement Recommendation* — the Curator recommends that a mention be assigned to a specific cluster.
-. *Exclusion Recommendation* — the Curator recommends that specific clusters be excluded from consideration during re-resolution.
+. *Placement Recommendation* — the Curator recommends that a mention be assigned to a specific cluster: either its current cluster (Accept) or one of the candidate clusters stored with its latest ERE outcome (Assign).
+. *Exclusion Recommendation* — the Curator recommends that the current cluster and all stored candidate clusters be excluded from consideration during re-resolution (Reject).
+
+A Curator cannot recommend an arbitrary target cluster or a partial exclusion list.
 
 Curator actions are recommendations only. They do not directly modify the Cluster Assignment stored in ERS.
 
-Upon receiving a valid re-evaluation request, ERS forwards the recommendation to ERE using the appropriate resolution interaction. ERE evaluates the request according to its internal clustering logic and returns an authoritative clustering outcome.
+Upon receiving a valid re-evaluation request, ERS records the Curator action and forwards the recommendation to ERE as a resolution request carrying the proposed or excluded cluster identifiers. ERE evaluates the request according to its internal clustering logic and returns an authoritative clustering outcome. Honouring a recommendation is optional for an ERE: it may treat recommendations as advisory. The Basic ERE ignores them and answers a request for an already-resolved mention from its stored state, so with the Basic ERE Curator actions do not change placements.
 
 ERS records the latest Cluster Assignment returned by ERE in the Decision Store and exposes it as the current canonical identity.
 
@@ -41,7 +43,7 @@ Cluster Assignment may change over time as a result of such re-evaluation. Stabi
 == Preconditions
 
 * The mention exists in the Decision Store with a current Cluster Assignment.
-* The Curator provides the required mention identifiers and, where applicable, recommended cluster identifiers or exclusion lists.
+* The Curator provides the required mention identifiers and, for a placement to another cluster, one of the stored candidate cluster identifiers.
 
 == Trigger
 
@@ -51,7 +53,7 @@ The Curator selects an existing mention (or a set of mentions) and submits a rec
 
 For a valid re-evaluation request:
 
-. ERS forwards the recommendation to ERE without altering the current Cluster Assignment.
+. ERS records the Curator action and forwards the recommendation to ERE without altering the current Cluster Assignment.
 . ERE evaluates the recommendation and determines the authoritative clustering outcome.
 . ERS updates the Decision Store to reflect the latest Cluster Assignment returned by ERE.
 . Any change in Cluster Assignment updates delta tracking to support refresh operations.
@@ -60,15 +62,16 @@ The resulting Cluster Assignment is authoritative and replaces the previous assi
 
 == Minimal Guarantees (On Failure)
 
-* If the re-evaluation request is invalid or refers to an unknown mention, ERS returns an explicit validation error.
-* If ERE is temporarily unavailable, the request is not applied and the existing Cluster Assignment remains unchanged.
+* If the re-evaluation request is invalid or refers to an unknown mention, ERS returns an explicit error.
+* A placement to a cluster that is not one of the stored candidates is rejected (conflict).
+* Forwarding to ERE is best-effort: the Curator action is recorded first; if ERS cannot publish the request, the failure is only logged, the Curator sees the action as accepted, and the existing Cluster Assignment remains unchanged.
 * Curator recommendations do not directly modify canonical identity without an authoritative outcome from ERE.
 
 == Main Success Scenario
 
 Placement Recommendation:
 
-. The Curator requests that a mention be assigned to a specified cluster.
+. The Curator requests that a mention be assigned to its current cluster or to one of its stored candidate clusters.
 . ERS validates the request and forwards it to ERE as a placement recommendation.
 . ERE evaluates the recommendation and determines the resulting Cluster Assignment.
 . ERS records the returned Cluster Assignment in the Decision Store.
@@ -77,7 +80,7 @@ Placement Recommendation:
 
 Exclusion Recommendation:
 
-. The Curator requests re-resolution with one or more clusters excluded.
+. The Curator requests re-resolution with the current cluster and all stored candidate clusters excluded.
 . ERS forwards the exclusion list to ERE.
 . ERE re-evaluates clustering under its internal logic.
 . ERS records the authoritative Cluster Assignment returned by ERE.
@@ -88,6 +91,7 @@ Exclusion Recommendation:
 * ERE decisions are binding.
 * ERS stores only the latest Cluster Assignment per mention and does not maintain canonical lineage.
 * All Cluster Assignment changes resulting from re-evaluation must update delta tracking.
+* One action per placement: after one Curator action on a mention's current placement, further Curator actions on that mention are rejected as already curated until ERE returns a changed outcome for it. This guard applies to Curator actions only; it does not lock the Cluster Assignment, and ERE authority is unaffected.
 
 == Technology and Data Variations
 

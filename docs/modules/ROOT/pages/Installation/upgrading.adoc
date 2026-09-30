@@ -1,0 +1,59 @@
+= Upgrading
+:description: Actions required when upgrading an existing ERSys deployment to a new release.
+:release-tag: 1.1.0-rc.8
+
+This page lists the actions required to upgrade an existing ERSys deployment.
+Each upgrade rebuilds the images from the new release tag (see xref:Installation/deployment-requirements.adoc#building-the-images[Building the images]) and redeploys the containers; the sections below list what else changes.
+
+[#to-1-1-0-rc-8]
+== Upgrading to 1.1.0-rc.8
+
+Applies to deployments running an earlier 1.1.0 release candidate.
+
+=== ERE: database reset and new configuration
+
+The ERE changes how it uses memory and matches entities:
+
+* requests are taken from Redis in bounded batches; requests beyond a batch wait in Redis;
+* the database memory limit and spill directory are configurable, and `ERE_DUCKDB_MEMORY_LIMIT` must be set;
+* the matching model is trained once, after 200 mentions, saved, and reloaded on restart;
+* candidate matching requires the same country and a similar name, and the clustering threshold changes from 0.20 to 0.7;
+* Redis 6.2 or newer is required.
+
+The database tables have changed and an existing database is not migrated: the ERE refuses to start on a database created by an earlier version.
+Its matching state is discarded and rebuilt from new requests.
+The ERS keeps the cluster identifiers it already holds and does not re-send decided mentions, so it cannot rebuild the ERE database.
+New mentions of entities already known to the ERS form new clusters beside the existing ones; the ERE does not merge them.
+The `resolver.yaml` file lives on the configuration volume, not in the image; if it is not replaced, the ERE runs with the previous matching rules and threshold.
+
+. Check that Redis runs version 6.2 or newer.
+. Stop the ERE.
+. On the `ere-data` volume, delete `app.duckdb` and, if present, `app.duckdb.wal`, `app.duckdb.splink_model.json` and the `.duckdb_tmp` directory (used by earlier release candidates only).
+. Replace `resolver.yaml` on the configuration volume with the file from `src/config/` at tag `{release-tag}` of the ERE repository. `rdf_mapping.yaml` is unchanged.
+. Set `ERE_DUCKDB_MEMORY_LIMIT` to about 60% of the ERE container memory. If the environment sets `LOG_LEVEL`, rename it to `ERE_LOG_LEVEL`; `LOG_LEVEL` has no effect.
+. Rebuild the image, redeploy and start the ERE.
+. Check that the startup log line `DuckDB: storage=disk ... memory_limit=...` shows the value of `ERE_DUCKDB_MEMORY_LIMIT`.
+
+The ERE no longer logs request bodies at `INFO` level.
+Each request is logged with the batch it belongs to and its timings; `queue_wait_ms` gives the time the request waited in Redis.
+
+=== ERS: rebuild only
+
+No environment variable, configuration file or infrastructure change is required.
+
+* `USE_MOCK_SERVICES` and `CURATION_CONFIDENCE_THRESHOLD` are not read; they can be removed.
+* Several optional variables with defaults are now documented, among them the time budgets, the mention size limit and the decision store limits; see xref:Installation/environment-variables.adoc#ers[Environment Variables].
+* Any proxy, load balancer or gateway in front of the ERS API must accept request bodies of at least 50 MB (see xref:Installation/deployment-requirements.adoc#network[Network]).
+
+While the ERS is stopped, client systems cannot submit mentions and the Link Curation UI cannot reach the Curation API; schedule the upgrade accordingly.
+
+=== Link Curation UI: rebuild, optional read-only root filesystem
+
+No environment variable or configuration change is required, but two behaviours of the Nginx proxy changed during the 1.1.0 release candidates:
+
+* Nginx resolves `API_BACKEND_URL` through the container's local or link-local DNS resolvers only; other resolvers, such as corporate DNS servers, are ignored.
+`API_BACKEND_URL` must therefore be a name resolvable by the platform DNS, for example a service-discovery name or the name of an internal load balancer.
+* Nginx forwards requests with `Host` set to `API_BACKEND_URL`, instead of the public address of the UI.
+The Curation API, or the load balancer in front of it, must accept that host name.
+
+The image now supports a read-only root filesystem with a writable `/tmp`; enabling it is optional (see xref:Installation/deployment-requirements.adoc#read-only-root-filesystem[Read-only root filesystem]).

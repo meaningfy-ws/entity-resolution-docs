@@ -13,7 +13,7 @@ This annex records the key architectural decisions that shape ERSys, organised b
 | Cluster identifiers and canonical identifiers are the same, derived deterministically from a shared space with no secondary governance layer.
 
 | xref:AnnexeC-ADRs/adra2.adoc#adr-a2n[ADR-A2N: Provisional Identifier and Timeout Budget Model]
-| When ERE does not respond within the internal window, ERS issues a provisional singleton identifier, ensuring bounded client response.
+| When ERE does not respond within the execution window, ERS issues a provisional singleton identifier; single-mention and bulk requests each have their own time budget.
 
 | xref:AnnexeC-ADRs/adra3.adoc#adr-a3n[ADR-A3N: Identifier Stability and Assignment Mutability]
 | Cluster identifiers are stable; mention-to-cluster assignment is mutable under ERE authority and tracked via delta.
@@ -25,10 +25,13 @@ This annex records the key architectural decisions that shape ERSys, organised b
 | ERS maintains a Decision Store (latest outcome per mention) and a separate User Action Log for traceability, with no secondary governance in ERS.
 
 | xref:AnnexeC-ADRs/adrc1.adoc#adr-c1n[ADR-C1N: Client Resolution Semantics]
-| Synchronous, bounded client-facing interaction: always returns a canonical identifier within the client timeout, engine-resolved or provisional.
+| Synchronous, bounded client-facing interaction: returns a canonical identifier, engine-resolved or provisional, within the time budget of the request.
 
 | xref:AnnexeC-ADRs/adrc2.adoc#adr-c2n[ADR-C2N: ERS–ERE Message Types and Delivery Semantics]
-| At-least-once, idempotent asynchronous messaging tolerates duplicates and out-of-order delivery without hidden timing coupling.
+| Asynchronous messaging without delivery guarantees; idempotent consumers tolerate duplicates and out-of-order delivery, and lost messages are recovered through provisional identifiers and later outcomes.
+
+| xref:AnnexeC-ADRs/adrc4.adoc#adr-c4n[ADR-C4N: Outcome Notification Across ERS Replicas]
+| The ERS replica that receives an ERE response notifies all replicas, so each synchronous caller is answered by the replica it is waiting in.
 
 | xref:AnnexeC-ADRs/adrd1.adoc#adr-d1n[ADR-D1N: Authoritative Stores and State Separation]
 | Explicit authority boundaries: ERE owns the cluster store; ERS owns request registry, decision store, and user action log.
@@ -46,5 +49,5 @@ This annex records the key architectural decisions that shape ERSys, organised b
 | Observability strategy for distributed async environment: traces provisional issuance, assignment changes, and delta exposure.
 
 | xref:AnnexeC-ADRs/adrg2.adoc#adr-g2n[ADR-G2N: Authentication and Authorisation Model]
-| Authentication delegated to external identity provider; authorisation implemented via role-based access control in ERS.
+| Authentication through local ERS accounts, with delegation to an external identity provider as the target; authorisation implemented via role-based access control in ERS.
 |===

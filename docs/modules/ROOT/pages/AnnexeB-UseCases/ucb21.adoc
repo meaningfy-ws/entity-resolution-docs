@@ -24,13 +24,15 @@ The goal is to allow a Curator to request re-evaluation of the current Cluster A
 
 The Curator may perform one of the following actions:
 
-. *Placement Recommendation* — recommending assignment of the mention to a specified cluster.
-. *Exclusion Recommendation* — requesting re-resolution with one or more clusters excluded from consideration.
+. *Accept* — a Placement Recommendation for the mention's current cluster.
+. *Assign* — a Placement Recommendation for one of the candidate clusters stored with the latest ERE outcome; any other cluster is rejected (conflict, HTTP 409).
+. *Reject* — an Exclusion Recommendation that excludes the current cluster and all stored candidate clusters from consideration.
 
 Upon submission:
 
 * ERS validates the request.
-* ERS forwards the recommendation to ERE using the appropriate interaction type.
+* ERS records the Curator action.
+* ERS forwards the recommendation to ERE as a resolution request carrying the proposed or excluded cluster identifiers.
 * ERS does not modify the current Cluster Assignment at this stage.
 
 ERE evaluates the recommendation according to its internal clustering logic and returns an authoritative clustering outcome asynchronously. Only after receiving the authoritative outcome from ERE does ERS update the Decision Store to reflect the latest Cluster Assignment.
@@ -57,11 +59,11 @@ The contract-level success and minimal guarantees, the outcome possibilities (un
 
 == Minimal Guarantees (On Failure)
 
-As stated in xref:AnnexeB-UseCases/ucw2.adoc#uc-w2[UC-W2], with the realisation specific that if ERS cannot forward the request to ERE, the current Cluster Assignment remains unchanged and no intermediate state is created.
+As stated in xref:AnnexeB-UseCases/ucw2.adoc#uc-w2[UC-W2], with the realisation specific that forwarding is best-effort: the Curator action is recorded before forwarding, and if ERS cannot publish the request to ERE, the failure is only logged, the Curator sees the action as accepted, and the current Cluster Assignment remains unchanged.
 
 == Special Requirements
 
-The UC-W2 special requirements (recommendation-not-override, binding ERE decisions, latest-assignment-only with no canonical lineage, delta tracking on change) apply. No additional Blue-specific special requirements arise for the single-mention path.
+The UC-W2 special requirements (recommendation-not-override, binding ERE decisions, latest-assignment-only with no canonical lineage, delta tracking on change) apply, including the one-action-per-placement rule: a further action on a mention that is already curated on its current placement is rejected with HTTP 409 until ERE returns a changed outcome for that mention.
 
 == Technology and Data Variations
 

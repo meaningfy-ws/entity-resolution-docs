@@ -28,11 +28,11 @@ box "Entity Resolution System (ERSys)"
     participant DecisionStore as "Resolution Decision Store"
 end
 
-%% Consumer obtains last_seen_timestamp from its own System of Records (not shown)
-DownstreamConsumer ->> CanonicalLookup: Bulk refresh by source_id<br/>(source_id, last_seen_timestamp, limit?)
+%% ERS keeps the watermark (last_notification_date) per source_id; the consumer does not supply it
+DownstreamConsumer ->> CanonicalLookup: Bulk refresh by source_id<br/>(source_id, limit?)
 CanonicalLookup ->> ERS: Validate request and resolve bulk refresh
 
-ERS ->> DecisionStore: Read changed assignments<br/>(source_id, last_seen_timestamp, effective_limit)
+ERS ->> DecisionStore: Read changed assignments<br/>(source_id, last_notification_date, effective_limit)
 DecisionStore -->> ERS: Bulk refresh slice<br/>(updates, has_more, continuation_cursor?)
 
 ERS -->> CanonicalLookup: Bulk refresh slice<br/>(updates, has_more, continuation_cursor?)
@@ -55,15 +55,15 @@ Note right of CanonicalLookup: Bulk refresh is read-only and does not trigger re
 
 *Submit refreshBulk request.* A downstream consumer calls refreshBulk for a given `source_id` (the consumer scope used for delta tracking). The request may include an optional `limit` to bound the response size.
 
-*Validate request.* ERS validates the request is well-formed and that the caller is authorised to access the given `source_id` scope.
+*Validate request.* ERS validates that the request is well-formed and that the `source_id` is known; an unknown `source_id` yields a not-found error. The ERS API does not itself authenticate callers; where access to a `source_id` scope must be restricted, a gateway in front of ERS enforces it.
 
-*Compute the delta slice from ERS state.* ERS reads from its Decision Store the set of mentions whose recorded placement changed since the last successful exposure for that `source_id`. The delta rule is conceptually `last_notification_date` < `last_update_date`. The returned update items include, at minimum, the mention correlation identifiers and the current *`cluster_id` (canonical identifier)*, plus correlation metadata such as `context_id` as defined by the API contract.
+*Compute the delta slice from ERS state.* ERS reads from its Decision Store the set of mentions whose recorded placement changed since the last successful exposure for that `source_id`. The delta rule is conceptually `last_notification_date` < `last_update_date`, where `last_notification_date` is the watermark ERS keeps per `source_id`. A mention's first recorded assignment is not a change: the client already received it in the resolve response, so it is not returned here. The returned update items include the mention correlation identifiers, the current cluster reference (*`cluster_id` (canonical identifier)* with its scores) and the time of the last assignment update, plus correlation metadata such as the submitted context as defined by the API contract.
 
-*Return a bounded slice, with continuation if needed.* If the result set is large, ERS returns a bounded slice and a server-minted `continuation_cursor` indicating that more results are available. The consumer may call refreshBulk again with that `continuation_cursor` to obtain the next slice.
+*Return a bounded slice, with continuation if needed.* If the result set is large, ERS returns a bounded slice and a server-minted `continuation_cursor` indicating that more results are available. The consumer may call refreshBulk again with that `continuation_cursor` to obtain the next slice. A `source_id` must have a single sequential consumer.
 
 *Continue until complete.* The consumer repeats the continuation call until the response indicates there is no more data.
 
-refreshBulk is strictly read-only with respect to identity and clustering: it does not trigger resolution, re-resolution, curation, or any form of rebuild. Its only permissible state effect is advancing the exposure watermark for that `source_id` when a slice is successfully produced, so that the same updates are not repeatedly returned as new.
+refreshBulk is strictly read-only with respect to identity and clustering: it does not trigger resolution, re-resolution, curation, or any form of rebuild. Its only permissible state effect is advancing the exposure watermark for that `source_id` when the final slice (`has_more` false, including an empty result) is successfully produced, so that the same updates are not repeatedly returned as new. A pagination abandoned before its final slice is delivered again from the start on the next call without a cursor.
 
 *Key behavioural commitments shown*
 
@@ -71,7 +71,7 @@ refreshBulk is strictly read-only with respect to identity and clustering: it do
 * The operation is *read-only* with respect to placement decisions. It does not trigger engine work.
 * Responses are *bounded* and can be paged safely using a server-minted `continuation_cursor`.
 * The exposed canonical identity for each mention is the *latest authoritative cluster assignment* recorded by ERS.
-* Consumers must tolerate duplicates and re-ordering across calls, because upstream messaging is at-least-once and placements can change again while a bulk sync is in progress.
+* Consumers must tolerate duplicates and re-ordering across calls, because an abandoned pagination is delivered again from the start (at-least-once delivery) and placements can change again while a bulk sync is in progress.
 
 *Authoritative state touched*
 

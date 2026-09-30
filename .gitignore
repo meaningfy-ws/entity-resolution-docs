@@ -19,3 +19,5 @@ AGENTS.md
 .ers-clone/
 .openapi-generator/
 .openapi-generator-ignore
+# Local planning notes (internal, not for the public repo)
+tasks.md

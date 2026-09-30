@@ -7,7 +7,7 @@
 
 == Stakeholders and Interests
 
-* The Originator requires a canonical identifier for each submitted Entity Mention and expects the identifier to be returned within the agreed client-facing timeout budget.
+* The Originator requires a canonical identifier for each submitted Entity Mention and expects the identifier to be returned within the time budget of the request.
 * Downstream consumers depend on cluster identifiers as canonical identity references and must be able to reconcile changes in Cluster Assignment over time.
 * ERS operators require predictable timeout handling, strict idempotency, and clear separation between client-facing guarantees and engine-internal processing.
 
@@ -17,19 +17,22 @@ The Originator submits an Entity Mention to ERSys in order to obtain the canonic
 
 Canonical identity is defined as a cluster managed by the Entity Resolution Engine (ERE). Cluster identifiers are canonical identifiers. ERE is authoritative for clustering outcomes and its decisions are binding.
 
-Two time budgets apply: Client ↔ ERS timeout budget and ERS ↔ ERE execution window (shorter).
+A single time budget applies to a single-mention request: it is both the ERS–ERE execution window and the bound on the ERS response.
+The Originator's own timeout must be longer than this budget.
+For a bulk request, each mention is resolved concurrently within the execution window, and the whole request is bounded by a separate bulk budget.
 
 Upon receiving a valid request, ERS forwards the mention to ERE for clustering and waits within the ERS–ERE execution window.
 
 If ERE responds within the execution window, ERS returns the cluster identifier provided by ERE and records the corresponding Cluster Assignment in the Decision Store.
 
-If ERE does not respond within the execution window but the client timeout budget has not expired, ERS:
+If ERE does not respond within the execution window, ERS:
 
-* deterministically derives a singleton cluster identifier (Provisional Identifier),
-* returns this Provisional Identifier to the Originator within the client timeout budget,
-* forwards the recommended Cluster Assignment to ERE using the appropriate resolution message.
+* deterministically derives a singleton cluster identifier (Provisional Identifier), using the same rule the ERE uses for a new singleton cluster,
+* returns this Provisional Identifier to the Originator.
 
-ERE subsequently evaluates the Provisional Identifier and may confirm or replace the Cluster Assignment. ERS records and exposes the latest Cluster Assignment received from ERE in the Decision Store.
+ERS sends no further message to ERE: ERE keeps processing the original request. When its outcome arrives, a singleton outcome confirms the Provisional Identifier and any other outcome replaces it. ERS records and exposes the latest Cluster Assignment received from ERE in the Decision Store.
+
+When the single-mention budget is set to zero (provisional-only mode, for deployments without an ERE), ERS does not contact ERE and returns a Provisional Identifier immediately; such identifiers are never confirmed or replaced.
 
 Cluster Assignment for a mention may change over time. Stability means that cluster identifiers are not reused improperly; it does not imply immutability of assignment.
 
@@ -42,11 +45,11 @@ Follow-up retrieval of updated Cluster Assignments is performed through the dedi
 
 == Success Guarantee (Postconditions)
 
-For every valid request received within the client timeout budget:
+For every valid request:
 
 . ERS registers the request and enforces idempotency based on correlation identifiers.
-. ERS forwards the mention to ERE for clustering.
-. ERS returns a canonical identifier within the client timeout budget, either:
+. ERS forwards the mention to ERE for clustering, unless provisional-only mode is configured.
+. ERS returns a canonical identifier within the time budget, either:
 .. the cluster identifier returned by ERE, or
 .. a deterministically derived Provisional Identifier.
 . The returned identifier is a valid canonical identifier at the time of response (at-response guarantee).
@@ -55,8 +58,9 @@ For every valid request received within the client timeout budget:
 == Minimal Guarantees (On Failure)
 
 . If the request is syntactically invalid or violates mandatory validation rules, ERS returns an explicit validation error.
-. If a critical dependency prevents request registration or response generation within the client timeout budget, ERS returns an explicit error.
-. Timeout of the ERS–ERE execution window alone does not result in an error if the client timeout budget has not expired; instead, a Provisional Identifier is issued.
+. If a critical dependency (for example the Decision Store or the messaging channel) is unavailable, ERS returns an explicit service-unavailable error; no Provisional Identifier is issued in that case.
+. Expiry of the ERS–ERE execution window alone does not result in an error for a single-mention request; instead, a Provisional Identifier is issued.
+. A bulk request that exceeds its bulk budget fails as a whole with a timeout error, and no partial result is returned; Provisional Identifiers already issued for some of its mentions remain stored.
 
 == Main Success Scenario
 
@@ -76,21 +80,20 @@ Provisional Identifier Issuance:
 . ERS validates and registers the request.
 . ERS forwards the mention to ERE.
 . ERE does not respond within the ERS–ERE execution window.
-. ERS derives a deterministic Provisional Identifier and returns it to the Originator within the client timeout budget.
-. ERS forwards the recommended Cluster Assignment to ERE.
-. ERE later confirms or replaces the Cluster Assignment.
+. ERS derives a deterministic Provisional Identifier and returns it to the Originator.
+. ERE completes the original request; its outcome later confirms or replaces the Cluster Assignment.
 . ERS updates the Decision Store to reflect the latest Cluster Assignment.
 
 == Extensions
 
 1a. Invalid or malformed request — ERS rejects the request and returns a validation error. +
-1b. Unsupported entity type or payload format — ERS returns an explicit error indicating the unsupported type or format. +
-2a. Repeated request (idempotent replay) — If the same `(source_id, request_id, entity_type)` is submitted again with identical payload, ERS returns the same canonical identifier that was previously returned for that request context. Subsequent Cluster Assignment changes are exposed via refresh operations. +
+1b. Unsupported entity type or payload format, or mention content that cannot be parsed or exceeds the configured maximum size — ERS returns an explicit error indicating the unsupported type or format. +
+2a. Repeated request (idempotent replay) — If the same `(source_id, request_id, entity_type)` is submitted again with identical payload, ERS returns the mention's current Cluster Assignment from the Decision Store as a canonical identifier, without contacting ERE. This may differ from the first answer if ERE or a Curator changed the assignment since. If no Cluster Assignment exists yet, ERS forwards the request to ERE again. +
 2b. Idempotency conflict — If the same `(source_id, request_id, entity_type)` is submitted with a different payload, ERS returns an idempotency-conflict error and does not modify the Decision Store.
 
 == Special Requirements
 
-* The resolve operation is idempotent with respect to request registration and initial response.
+* The resolve operation is idempotent with respect to request registration: a replay creates no new request and returns the current Cluster Assignment.
 * Cluster identifiers are canonical identifiers and originate either from ERE clustering or deterministic singleton derivation.
 * ERE decisions are binding; ERS does not override clustering outcomes.
 * ERS stores only the latest Cluster Assignment per mention in the Decision Store; canonical entity lineage is not maintained.

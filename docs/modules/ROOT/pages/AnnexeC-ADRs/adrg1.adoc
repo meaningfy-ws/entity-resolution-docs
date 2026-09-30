@@ -3,7 +3,7 @@
 
 [NOTE]
 ====
-Status: Accepted
+Status: Accepted (revised 2026-09-30 to match ERSys 1.1.0)
 ====
 
 == Context and Problem Statement
@@ -35,7 +35,7 @@ A clear separation is therefore required between functional behaviour and teleme
 .. They may include (possible metadata):
 ... mention identifier tuple (source_id, request_id, entity_type)
 ... cluster_id (where applicable)
-... action_type
+... request kind (plain resolution, recommendation or exclusion)
 ... Timestamps
 ... execution outcomes
 ... internal correlation identifiers

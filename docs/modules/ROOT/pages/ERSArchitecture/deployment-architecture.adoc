@@ -13,26 +13,29 @@ This section intentionally does not specify a production-grade cloud-native depl
 
 == Runtime topology and container grouping
 
-In the reference deployment, all software elements execute as separate Docker containers on a single logical host node. Containers are grouped into three logical stacks reflecting application responsibility boundaries: the Link Curation stack, the ERS stack, and the ERE stack. This grouping reflects authority boundaries established earlier:
+In the reference deployment, every software element runs as a separate container on a container orchestration platform. The containers form three independently installable components, the Link Curation UI, the Entity Resolution Service (ERS) and the Entity Resolution Engine (ERE), plus a set of shared infrastructure services that are provisioned once for the whole system. This grouping reflects the authority boundaries established earlier:
 
 * ERE is authoritative for clustering and canonical identity (`cluster_id`).
 * ERS is authoritative for intake records, projection of clustering outcomes, user action trace, and delta exposure tracking.
 * The Link Curation application is a consumer of projection state and a producer of structured recommendations.
 
-image::Technology deployment.png[Technology deployment view: Link Curation, ERS, and ERE container stacks on a single host node with network segmentation]
+image::Technology deployment.png[Runtime topology: Link Curation UI, ERS and ERE components with their shared infrastructure]
 // TODO: rename asset to hyphenated slug (current file: "Technology deployment.png")
 
-=== Link Curation stack
+=== Link Curation UI
 
-The Link Curation stack contains the runtime components required for human interaction: HTTP User Interface, Link Curation Frontend, Link Curation Backend, and Zitadel as the external identity provider.
+The Link Curation UI is a single container. It serves the web application used by curators and acts as a reverse proxy that forwards every API call from the browser to the Curation API of the ERS.
 
-These components are deployed as independent containers. They do not host resolution persistence or clustering logic. All state-changing operations are executed through ERS REST interfaces. Authentication and single sign-on are externalised to Zitadel, keeping identity management concerns separate from resolution semantics.
+The UI holds no data and uses no shared infrastructure: it does not access the message queue, the document store or any volume. All state-changing operations are executed through the Curation REST API. User authentication is handled by the Curation API; no external identity provider is required.
 
-Only the HTTP ingress surface is externally reachable. Internal service communication flows through explicitly defined REST endpoints.
+The Link Curation UI is the only component exposed to end users.
 
-=== ERS stack
+=== ERS
 
-The ERS stack represents the runtime realisation of the projection and orchestration layer. It includes the Main ERS REST API HTTP, the LinkCuration-ERS REST API HTTP, the Entity Resolution Service Orchestrator (ERS), the ERS MQ interface, FerretDB for persistence, Redis for messaging infrastructure, and Jaeger for telemetry.
+The ERS is built from a single image and runs as two containers:
+
+* the *ERS API*, which exposes the ERS REST API to internal client systems such as the TED-SWS pipeline;
+* the *Curation API*, which exposes the Curation REST API to the Link Curation UI only.
 
 At runtime, ERS performs the following bounded responsibilities:
 
@@ -42,23 +45,30 @@ At runtime, ERS performs the following bounded responsibilities:
 * Replace the current Decision projection per mention.
 * Expose the latest recorded `cluster_id` via REST.
 
-FerretDB serves as the document-oriented persistence layer for intake and projection records. It stores EntityMention and Decision projection data but does not redefine clustering semantics and does not constitute an independent canonical registry.
+Both containers use the document store for intake and projection records, the message queue for the exchange with ERE, and read their configuration from the shared configuration volume. Neither is exposed outside the internal network. Both can run as several replicas: the message infrastructure broadcasts every ERE outcome to all replicas, so each one is notified regardless of which replica submitted the request.
 
-Redis provides asynchronous messaging transport between ERS and ERE. It is infrastructure, not authority. Jaeger provides distributed tracing across synchronous and asynchronous flows; observability remains orthogonal to identity semantics.
+=== ERE
 
-ERS containers operate inside the ER system network. Only declared REST endpoints are exposed via ingress routing.
+The ERE is a single container with no network interface and no inbound port. It consumes resolution requests from the message queue and publishes responses back to it; it never calls, and is never called by, the ERS or any other component directly.
 
-=== ERE stack
+The ERE keeps its clustering state in an embedded database stored on its own persistent data volume, together with the temporary files the engine spills to disk under memory pressure and its trained matching model. It reads its configuration from the shared configuration volume. Because the embedded database supports only one writer, the ERE must run as a single instance.
 
-The ERE stack contains the ERE MQ interface, the Basic Entity Resolution Engine (ERE), and DuckDB as reference persistence.
+Alternative storage mechanisms may be used provided that the asynchronous message contract remains unchanged.
 
-ERE containers are reachable exclusively via the message queue interface. There is no external REST surface for clustering operations. DuckDB represents a reference implementation choice for clustering state persistence. Alternative storage mechanisms may be used provided that the asynchronous message contract remains unchanged.
+=== Shared infrastructure
 
-The ERE stack is isolated within the ER system network and communicates with ERS only through asynchronous messaging.
+The shared infrastructure is provisioned once and used by several components:
+
+* The *message queue* carries resolution requests from ERS to ERE and responses back, and broadcasts ERE outcomes across ERS replicas. It is infrastructure, not authority. Requests the ERE has not yet taken wait in the queue, so the queue must have enough memory for the largest expected backlog.
+* The *document store* holds EntityMention and Decision projection data for the ERS. It does not redefine clustering semantics and does not constitute an independent canonical registry.
+* The *shared configuration volume* is mounted read-only by the ERS and ERE containers and holds their configuration files.
+* The *ERE data volume* is mounted read-write by the ERE alone. It must be persistent and writable.
 
 == Infrastructure roles and concrete technologies
 
-The reference deployment maps abstract infrastructure roles to concrete technologies in order to provide a runnable baseline: Docker Engine as container runtime, docker-compose for service wiring, Traefik for HTTP ingress and routing, Redis for asynchronous messaging, FerretDB as ERS document store, DuckDB for ERE persistence, Zitadel for identity management and SSO, and Jaeger as telemetry collector.
+The reference deployment maps abstract infrastructure roles to concrete technologies in order to provide a runnable baseline: Docker Engine as container runtime, docker-compose for service wiring, Nginx for web serving and reverse proxying in the Link Curation UI, Redis (6.2 or newer) for asynchronous messaging and notifications, FerretDB as the ERS document store, DuckDB as the embedded ERE store, and Docker volumes for persistent file storage. An operational deployment may use a managed container platform, a managed MongoDB-compatible document store (for example Amazon DocumentDB) and shared file system volumes in their place.
+
+The concrete requirements for deploying these components are listed in xref:Installation/deployment-requirements.adoc[Deployment Requirements].
 
 These mappings are illustrative rather than mandatory. Equivalent technologies may replace them provided that exposed interfaces remain unchanged, authority boundaries remain intact, asynchronous integration semantics are preserved, and projection replacement behaviour is unaffected.
 
@@ -67,9 +77,9 @@ image::Technology choices.png[Mapping of abstract infrastructure roles to concre
 
 == Network segmentation and trust zones
 
-The deployment makes network segmentation explicit. The external network exposes only ingress endpoints intended for clients and the Link Curation application. The ER system network isolates internal communication between ERS, ERE, message queue, and persistence services. The host node executes all containers but does not collapse logical trust zones.
+The deployment makes network segmentation explicit. Only the Link Curation UI is reachable by end users. The ERS API is reachable by internal client systems, and the Curation API only by the Link Curation UI; neither is exposed to the public network. The message queue, the document store and the volumes are reachable only by the components that use them.
 
-Persistence services and message infrastructure are not directly reachable from the external network. ERE has no externally exposed control surface. All clustering communication occurs through asynchronous messaging.
+ERE has no externally exposed control surface. All clustering communication occurs through asynchronous messaging.
 
 This segmentation enforces a clean trust model at runtime. Clients interact with projection. Engines perform clustering. Infrastructure mediates transport without altering authority.
 

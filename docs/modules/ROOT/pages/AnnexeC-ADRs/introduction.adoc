@@ -27,7 +27,7 @@ The ADR set is organised as a compact catalogue of non-overlapping architectural
 
 * *A-Series — Identity:* Defines canonical identity semantics: cluster_id is the canonical identifier, singleton IDs are deterministic, identifiers are never reused, and assignment may change.
 * *B-Series — Authority:* Defines responsibility boundaries: ERE is authoritative for clustering; ERS is façade and projection layer; user actions are recommendations only.
-* *C-Series — Interaction:* Defines client and messaging behaviour: synchronous client contract, asynchronous ERS–ERE exchange, provisional identifiers, idempotent integration.
+* *C-Series — Interaction:* Defines client and messaging behaviour: synchronous client contract, asynchronous ERS–ERE exchange, provisional identifiers, idempotent integration, outcome notification across ERS replicas.
 * *D-Series — State & Synchronisation:* Defines authoritative stores and projection rules: ERE is source of truth; ERS stores latest placement only; refreshBulk exposes assignment deltas.
 * *E-Series — Corrective Processing:* Defines re-resolution and reclustering semantics and their uniform integration.
 * *F-Series — Representation Boundaries:* Separates identity from payload, preview, and pruning concerns.

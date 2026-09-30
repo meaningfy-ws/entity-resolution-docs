@@ -20,17 +20,19 @@ This use case describes the processing of a Curator-initiated bulk re-evaluation
 
 The goal is to allow a Curator to request re-evaluation of multiple Entity Mentions in a single bulk operation by applying a uniform recommendation pattern, without directly modifying canonical identity.
 
-Bulk mode allows the Curator to apply a uniform recommendation to multiple mentions. Supported bulk actions include:
+Bulk mode allows the Curator to apply a uniform recommendation to multiple mentions. The supported bulk actions are:
 
-. Submit a common Placement Recommendation for each selected mention.
-. Submit a common Exclusion Recommendation for each selected mention.
+. Bulk Accept — a Placement Recommendation for each selected mention's own current cluster.
+. Bulk Reject — an Exclusion Recommendation for each selected mention, excluding its own current cluster and stored candidate clusters.
+
+Each mention receives its own recommendation of the same kind; there is no common target cluster.
 
 Bulk processing is defined as a set of independent single-mention re-evaluation requests. No shared clustering semantics are introduced across mentions.
 
 Upon submission:
 
 * ERS validates the bulk request.
-* For each selected mention, ERS forwards the corresponding recommendation to ERE using the appropriate interaction type.
+* For each selected mention, ERS records the Curator action and forwards the corresponding recommendation to ERE as a resolution request carrying the proposed or excluded cluster identifiers.
 * ERS does not modify any Cluster Assignment at submission time.
 
 ERE evaluates each mention independently and returns authoritative clustering outcomes asynchronously. ERS updates the Decision Store per mention only after receiving authoritative outcomes from ERE.
@@ -54,7 +56,7 @@ The per-mention contract-level success and minimal guarantees are those of xref:
 
 == Minimal Guarantees (On Failure)
 
-Per mention, as stated in xref:AnnexeB-UseCases/ucw2.adoc#uc-w2[UC-W2]. The bulk-specific guarantee is that invalid or ineligible mentions are rejected individually while others may proceed, and a forwarding failure for one mention leaves that mention's Cluster Assignment unchanged with no intermediate state created.
+Per mention, as stated in xref:AnnexeB-UseCases/ucw2.adoc#uc-w2[UC-W2]. The bulk-specific guarantee is that invalid or ineligible mentions are rejected individually while others may proceed, and forwarding is best-effort: the Curator action is recorded first, and a forwarding failure for one mention is only logged and leaves that mention's Cluster Assignment unchanged.
 
 == Main Success Scenario
 
@@ -67,7 +69,7 @@ Per mention, as stated in xref:AnnexeB-UseCases/ucw2.adoc#uc-w2[UC-W2]. The bulk
 == Extensions
 
 1a. Partial validation failure — Invalid mentions are rejected individually; valid mentions proceed. +
-2a. Concurrent modification detected — If a mention has already been updated by a separate operation, ERS applies correlation rules and forwards the request; the authoritative outcome from ERE prevails. +
+2a. Already curated — If a selected mention has already been curated on its current placement, ERS reports it as ALREADY_CURATED and does not forward a recommendation for it; the other mentions proceed. +
 3a. No change in outcome — ERE confirms the existing Cluster Assignment; because the recorded assignment does not change, no delta update occurs.
 // TODO: delta-on-confirmation semantics — UC-W2/UC-B1.2/UC-B1.3 state "all Cluster Assignment changes update delta tracking"; this extension reads as consistent (confirmation = no change = no delta) but the rule is not explicitly stated at contract level. Needs a ruling (Decision 5: no semantic change made here).
 

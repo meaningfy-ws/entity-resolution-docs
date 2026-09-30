@@ -89,6 +89,7 @@ make clean-docs
 
 ```
 docs/
+├── diagrams/                        # Diagram sources (draw.io); PNG exports go to modules/ROOT/images/
 ├── modules/ROOT/
 │   ├── pages/
 │   │   ├── index.adoc              # Landing page (high-level orientation)

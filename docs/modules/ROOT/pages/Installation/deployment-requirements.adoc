@@ -1,0 +1,212 @@
+= Deployment Requirements
+:description: Components, infrastructure, volumes, images, runtime settings and sizing needed to deploy ERSys on any container platform.
+:release-tag: 1.1.0-rc.8
+:ers-repo: https://github.com/OP-TED/entity-resolution-service
+:ere-repo: https://github.com/OP-TED/entity-resolution-engine-basic
+:webapp-repo: https://github.com/OP-TED/entity-resolution-service-webapp
+
+This page describes what a deployment of ERSys {release-tag} needs, independently of the hosting platform.
+It complements xref:ERSys/getting-started.adoc[Getting Started], which runs the full stack locally with Docker Compose, and the xref:ERSArchitecture/deployment-architecture.adoc[Deployment Architecture], which explains the runtime topology.
+All environment variables are listed in xref:Installation/environment-variables.adoc[Environment Variables].
+
+Values in angle brackets, such as `<redis_password>`, are placeholders to replace with the values of your infrastructure.
+
+== Components
+
+ERSys consists of three separately installable components and a set of shared infrastructure provisioned once for the whole system.
+If the components are installed by different operators or at different times, coordinate so that each shared resource is created exactly once.
+
+[cols="2,2,1,3",options="header"]
+|===
+| Component | Containers | Port | Uses
+
+| ERS
+| Curation API (command `curation`) and ERS API (command `ers`), from one image
+| 8000, 8001
+| document store, Redis, configuration volume
+
+| ERE (Basic ERE)
+| One container, no network interface
+| —
+| Redis, configuration volume, ERE data volume
+
+| Link Curation UI
+| One container (Nginx serving the web application and proxying `/api/`)
+| 8080
+| Curation API only
+|===
+
+Install the ERS first: the Link Curation UI is unusable without the Curation API, and the ERE produces no work until the ERS submits requests.
+
+== Shared infrastructure
+
+=== Redis
+
+Redis carries the resolution requests and responses between the ERS and the ERE, and broadcasts ERE outcomes across ERS replicas.
+
+* *Version:* 6.2 or newer (7.x recommended).
+* *Port:* 6379. Enabling TLS (`REDIS_TLS=true` on all services) does not change the port on managed services such as AWS ElastiCache.
+* *Persistence:* not strictly required, as the queues are transient; append-only file (AOF) persistence is recommended so that in-flight messages survive a crash.
+* *Memory:* when the ERE falls behind, pending requests wait in the Redis queue.
+Size Redis to hold the largest expected backlog. For example, a full day of TED-SWS traffic is about 3,300 notices, or 15,500 mentions of about 20 KB each: roughly 310 MB.
+* *Network:* reachable by the ERS and the ERE only; never exposed to the internet.
+
+=== Document store
+
+The ERS keeps intake records, decisions and the user action log in a MongoDB-compatible document store.
+The local stack uses FerretDB; a deployment can use MongoDB or a managed service such as Amazon DocumentDB (5.0).
+
+* Only the ERS uses it. The ERE does not.
+* With Amazon DocumentDB, the connection string must contain `retryWrites=false`: DocumentDB does not support retryable writes.
+* Plan at least 50 GB of storage, with automated backups.
+* Reachable by the ERS only, on port 27017.
+
+=== Volumes
+
+[cols="1,2,1,1,3",options="header"]
+|===
+| Volume | Mounted by | Mount point | Access | Holds
+
+| `ers-config`
+| Curation API, ERS API, ERE
+| `/app/config`
+| read-only
+| `rdf_mention_config.yaml` (ERS), `rdf_mapping.yaml` and `resolver.yaml` (ERE)
+
+| `ere-data`
+| ERE only
+| `/data`
+| read-write
+| the DuckDB database (`app.duckdb`), its spill directory (`app.duckdb.tmp`) and the trained matching model (`app.duckdb.splink_model.json`)
+|===
+
+All containers run as the non-root user `appuser` (UID 1000, GID 1000).
+The configuration files must be readable, and the `ere-data` volume writable, by that user; otherwise the ERE cannot create its database and fails.
+Let `ere-data` grow with the dataset; plan at least 50 GB.
+
+The configuration files are not baked into the images.
+Place them on `ers-config` before starting the services, taking the defaults from the release tag:
+
+* `rdf_mention_config.yaml` from `<ers-repo>/src/config/`;
+* `rdf_mapping.yaml` and `resolver.yaml` from `<ere-repo>/src/config/`.
+
+== Building the images
+
+Each component is built from its repository at tag `{release-tag}` with the Dockerfile at `src/infra/Dockerfile`, from the repository root.
+Podman and Docker accept the same commands.
+
+[source,bash,subs="attributes+"]
+----
+# ERS ({ers-repo})
+git checkout {release-tag}
+podman build -t ersys-ers:{release-tag} --build-arg ENVIRONMENT=production -f src/infra/Dockerfile .
+
+# ERE ({ere-repo})
+git checkout {release-tag}
+podman build -t ersys-ere:{release-tag} -f src/infra/Dockerfile .
+
+# Link Curation UI ({webapp-repo})
+git checkout {release-tag}
+podman build -t ersys-webapp:{release-tag} --build-arg ENVIRONMENT=production -f src/infra/Dockerfile .
+----
+
+The Link Curation UI build downloads the Curation API OpenAPI schema, by default from the `release/1.1.0` branch of the ERS repository, so the build environment needs network access to GitHub.
+To use another location, for example a mirror, add `--build-arg ERS_SCHEMA_URL=<schema_url>`.
+
+Push the images to the registry used by your container platform.
+
+== Running the containers
+
+[cols="1,2,3",options="header"]
+|===
+| Container | Command | Health check
+
+| Curation API
+| `/entrypoint.sh curation`
+| `python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/docs')"`
+
+| ERS API
+| `/entrypoint.sh ers`
+| `python -c "import urllib.request; urllib.request.urlopen('http://localhost:8001/docs')"`
+
+| ERE
+| `python -m ere.entrypoints.app`
+| `sh -c "test -f /proc/1/cmdline"` (process liveness; the ERE has no port)
+
+| Link Curation UI
+| `nginx -g "daemon off;"`
+| `wget --spider -q http://localhost:8080/`
+|===
+
+The Curation API and the ERS API load the same environment file.
+The ERE loads its own environment file, which must share the Redis and queue settings with the ERS.
+The Link Curation UI takes a single variable, `API_BACKEND_URL`, set on its container.
+
+Start the Link Curation UI only after the Curation API passes its health check.
+
+=== Scaling
+
+* The Curation API and the ERS API can run as several replicas behind a load balancer; ERE outcomes reach every replica through the Redis notification channel.
+* The ERE must run as a *single instance*. Its embedded database supports only one writer, and a second ERE on the same `ere-data` volume corrupts it.
+
+=== ERE memory
+
+Set `ERE_DUCKDB_MEMORY_LIMIT` to about 60% of the memory given to the ERE container, for example `9GB` for 16 GB.
+Without it, DuckDB sizes its limit from the memory of the host rather than of the container, and the container can exceed its allocation.
+The remaining memory is needed by the engine outside the database.
+
+Keep the database, its spill directory and the model file on `ere-data`; never point them to `/tmp`.
+
+=== Read-only root filesystem
+
+The ERE and the Link Curation UI support a read-only container root filesystem.
+Both then need a writable temporary filesystem (tmpfs) at `/tmp`, writable by the non-root user; 64 MiB is enough.
+
+* The ERE uses it only for the PyStow cache: set `PYSTOW_HOME=/tmp/pystow`.
+* The Link Curation UI uses it for the generated Nginx configuration, the PID file and request buffering.
+
+Nothing persistent is stored in `/tmp`.
+
+== Network
+
+[cols="2,1,2,1",options="header"]
+|===
+| Service | Port | Reachable by | Public
+
+| Link Curation UI | 8080 | end users, through a load balancer terminating TLS | yes
+| Curation API | 8000 | Link Curation UI only | no
+| ERS API | 8001 | internal client systems, such as TED-SWS | no
+| ERE | — | nothing (outbound to Redis only) | no
+| Redis | 6379 | ERS, ERE | no
+| Document store | 27017 | ERS | no
+|===
+
+* *Curation API address.* `API_BACKEND_URL` must be an internal DNS name of the Curation API, not a public URL.
+Nginx resolves it through the container's local or link-local resolvers only, such as the Docker embedded DNS or the AWS VPC resolver.
+Nginx also sends this name as the `Host` header, so the Curation API, or the load balancer in front of it, must accept it.
+* *Request body size.* Consumers send mentions to the ERS API in bulk requests.
+Any proxy, load balancer or gateway in front of the ERS API must accept request bodies of at least 50 MB. Common defaults are much lower, for example 1 MB for Nginx, and larger requests are rejected with HTTP 413.
+
+== Sizing
+
+Starting values; the ERE and its data volume grow with the dataset.
+
+[cols="2,1,1,1,3",options="header"]
+|===
+| Component | vCPU | RAM | Disk | Notes
+
+| Curation API | 2 | 4 GB | — | scales horizontally
+| ERS API | 2 | 4 GB | — | scales horizontally
+| ERE | 4 | 16 GB | 50+ GB (`ere-data`) | CPU-intensive; single instance
+| Link Curation UI | 1 | 2 GB | — | static web application
+| Redis | — | 0.5–1.5 GB | — | more if a large backlog is expected
+| Document store | — | 4–16 GB | 50+ GB |
+|===
+
+== Verifying the installation
+
+. Open `http://<curation-api-host>:8000/docs` and `http://<ers-api-host>:8001/docs`; both pages load.
+. Check the ERE log: after connecting to Redis, it logs a line starting with `DuckDB: storage=disk path=/data/app.duckdb memory_limit=`, where `memory_limit` shows the value of `ERE_DUCKDB_MEMORY_LIMIT`, and there are no permission errors.
+. Open the Link Curation UI and log in with `ADMIN_EMAIL` and `ADMIN_PASSWORD`. The Curation API creates this account at startup if it does not exist.
+If the login page loads but login fails, the UI cannot reach the Curation API: check `API_BACKEND_URL`.
+. Submit one mention to the ERS API (see xref:ERSys/getting-started.adoc#workflow-1-submit-a-mention-and-retrieve-its-cluster-identifier[Getting Started — Workflow 1]); its decision then appears in the Link Curation UI.
