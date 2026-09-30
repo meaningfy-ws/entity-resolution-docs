@@ -1,0 +1,361 @@
+= Environment Variables
+:description: Reference of all environment variables and build arguments used to deploy ERSys, grouped by the service that reads them.
+:release-tag: 1.1.0-rc.8
+
+This page is the reference for every environment variable used to deploy ERSys {release-tag}: the ERS (Curation API and ERS API), the Basic ERE and the Link Curation UI.
+Variables are grouped by the service that reads them.
+A variable read by several services must have the same value in all of them.
+
+For what each area controls, see xref:ERS/configuration.adoc[ERS Configuration Reference]; for the infrastructure behind the values, see xref:Installation/deployment-requirements.adoc[Deployment Requirements].
+
+An environment variable set on the container takes precedence over the same variable in a `.env` file.
+Store secrets (`REDIS_PASSWORD`, `MONGO_URI`, `JWT_SECRET_KEY`, `ADMIN_PASSWORD`) in a secrets store and inject them into the containers rather than keeping them in plain text.
+
+[#shared]
+== Shared: Redis connection and queues
+
+Read by the Curation API, the ERS API and the ERE.
+If the values differ between the ERS and the ERE, the two exchange no messages and no resolution takes place.
+
+[cols="3,4,3",options="header"]
+|===
+| Variable | Description | Recommended value
+
+| `REDIS_HOST`
+| Host name of the Redis server. The default `localhost` only works in local development.
+| `<redis_host>`
+
+| `REDIS_PORT`
+| Port of the Redis server. The port does not change when TLS is enabled.
+| `6379`
+
+| `REDIS_DB`
+| Redis logical database. All services must use the same one.
+| `0`
+
+| `REDIS_PASSWORD`
+| Redis authentication password. Leave unset if Redis AUTH is not configured.
+| `<redis_password>`
+
+| `REDIS_TLS`
+| Enables TLS on Redis connections. Only the value `true` (any case) enables it.
+| `false`; `true` if Redis requires in-transit encryption
+
+| `ERSYS_REQUEST_QUEUE`
+| Redis list in which the ERS places resolution requests for the ERE.
+Change only if several ERSys installations share one Redis database.
+| `ere_requests`
+
+| `ERSYS_RESPONSE_QUEUE`
+| Redis list in which the ERE places resolution responses for the ERS.
+| `ere_responses`
+|===
+
+[#ers]
+== ERS: Curation API and ERS API
+
+Both containers run from the ERS image and load the same environment file.
+
+[cols="3,4,3",options="header"]
+|===
+| Variable | Description | Recommended value
+
+| `MONGO_URI`
+| Connection string of the document store.
+Percent-encode special characters in the password (for example `#` as `%23`, `@` as `%40`).
+With Amazon DocumentDB, `retryWrites=false` is mandatory.
+| `mongodb://<user>:<password>@<host>:27017/?retryWrites=false`
+
+| `MONGO_DATABASE_NAME`
+| Name of the database used by ERSys.
+| `ers`
+
+| `RDF_MENTION_CONFIG_FILE`
+| Path of the entity type configuration (`rdf_mention_config.yaml`) on the configuration volume.
+The default is a relative path; set it explicitly.
+| `/app/config/rdf_mention_config.yaml`
+
+| `REDIS_SOCKET_CONNECT_TIMEOUT`
+| Seconds to wait for the TCP connection to Redis, so that an unreachable Redis fails fast.
+| `5.0`
+
+| `DECISION_STORE_MAX_CANDIDATES`
+| Maximum number of candidate clusters stored with each decision; longer lists are truncated. Must be 1 or more.
+| `5`
+
+| `DECISION_STORE_DEFAULT_PAGE_SIZE`
+| Default page size when listing decisions. Between 1 and `DECISION_STORE_MAX_PAGE_SIZE`.
+| `250`
+
+| `DECISION_STORE_MAX_PAGE_SIZE`
+| Maximum page size when listing decisions. Must be 1 or more.
+| `1000`
+
+| `DEBUG`
+| Debug mode of the web framework.
+| `false`
+
+| `TRACING_ENABLED`
+| Enables OpenTelemetry tracing. Only `true` (any case) enables it; the standard `OTEL_*` variables, such as `OTEL_EXPORTER_OTLP_ENDPOINT`, then configure the export.
+| `false`
+
+| `OTEL_SERVICE_NAME`
+| Service name reported in traces.
+| `entity-resolution-service`
+|===
+
+[#curation-api]
+== ERS: Curation API only
+
+Read by the Curation API container (command `curation`), which serves the Link Curation UI.
+
+[cols="3,4,3",options="header"]
+|===
+| Variable | Description | Recommended value
+
+| `JWT_SECRET_KEY`
+| *Required.* Key used to sign login tokens. Changing it logs out all users.
+| a random string of at least 32 characters, for example from `openssl rand -hex 32`
+
+| `JWT_ALGORITHM`
+| Token signing algorithm.
+| `HS256`
+
+| `ACCESS_TOKEN_EXPIRE_MINUTES`
+| Validity of an access token, in minutes.
+| `15`
+
+| `REFRESH_TOKEN_EXPIRE_MINUTES`
+| Validity of a refresh token, in minutes.
+| `10080` (7 days)
+
+| `ADMIN_EMAIL`
+| *Required.* E-mail of the default administrator account, created at startup if it does not exist; an existing account is not modified.
+| `admin@<yourdomain>`
+
+| `ADMIN_PASSWORD`
+| *Required.* Password of the default administrator account. Changing it later does not change the password of an existing account.
+| a strong password
+
+| `CORS_ORIGINS`
+| JSON array of origins allowed to call the Curation API from a browser. The default `["*"]` allows any origin. An invalid JSON array stops the service.
+| `["https://<link-curation-ui-domain>"]`
+
+| `API_V1_PREFIX`
+| URL prefix of the Curation API. The Link Curation UI expects the default.
+| `/api/v1`
+
+| `APP_NAME`
+| Name shown on the API documentation page.
+| `Curation REST API`
+
+| `UVICORN_HOST`
+| Listen address.
+| `0.0.0.0`
+
+| `UVICORN_PORT`
+| Listen port, used by the Link Curation UI and the health check.
+| `8000`
+
+| `UVICORN_WORKERS`
+| Worker processes. The service can also be scaled with replicas.
+| `1`
+
+| `SEED_DB`
+| Loads demonstration data at startup. Development only: the production image does not contain the seed script.
+| `false` (or unset)
+|===
+
+[#ers-api]
+== ERS: ERS API only
+
+Read by the ERS API container (command `ers`), which receives resolution requests from client systems.
+
+[cols="3,4,3",options="header"]
+|===
+| Variable | Description | Recommended value
+
+| `ERS_API_PORT`
+| Listen port, used by client systems and the health check.
+| `8001`
+
+| `ERS_API_UVICORN_HOST`
+| Listen address.
+| `0.0.0.0`
+
+| `ERS_API_UVICORN_WORKERS`
+| Worker processes. The service can also be scaled with replicas.
+| `1`
+
+| `ERS_API_PREFIX`
+| URL prefix of the ERS API. Clients such as TED-SWS add `/api/v1` themselves; keep the default.
+| `/api/v1`
+
+| `ERS_API_NAME`
+| Name shown on the API documentation page.
+| `ERS REST API`
+
+| `ERS_COORDINATOR_SINGLE_REQUEST_TIME_BUDGET`
+| Seconds the ERS API waits for the ERE to resolve a mention before returning a provisional identifier. `0` skips the ERE wait and always returns a provisional identifier.
+| `30`
+
+| `ERS_COORDINATOR_BULK_REQUEST_TIME_BUDGET`
+| Maximum seconds for answering a bulk request, all mentions together. `0` removes the overall limit.
+| `120`
+
+| `ERS_PARSER_MAX_CONTENT_LENGTH`
+| Maximum size, in bytes, of the content of one mention; larger mentions are rejected.
+Independent of the request-body limit of any proxy in front of the ERS API (at least 50 MB, see xref:Installation/deployment-requirements.adoc#network[Network]).
+| `1048576` (1 MiB)
+
+| `REFRESH_BULK_MAX_LIMIT`
+| Maximum number of assignment changes returned per page by the bulk refresh.
+| `1000`
+
+| `ERS_NOTIFICATIONS_CHANNEL`
+| Redis Pub/Sub channel through which ERS API replicas share ERE outcomes.
+| `ers_notifications`
+
+| `ERS_SUBSCRIBER_READY_TIMEOUT`
+| Seconds the ERS API waits for its notification subscriber before accepting traffic. `0` disables the wait, which is not recommended with several replicas.
+| `5.0`
+|===
+
+[#ere]
+== ERE (Basic ERE)
+
+Read by the ERE container.
+The ERE does not use the document store; it keeps its data in a DuckDB database on the `ere-data` volume.
+
+[cols="3,4,3",options="header"]
+|===
+| Variable | Description | Recommended value
+
+| `ERE_DUCKDB_MEMORY_LIMIT`
+| *Must be set.* Maximum memory of the embedded database. Without it, DuckDB sizes its limit from the host memory, not the container's.
+| about 60% of the container memory, for example `9GB` for 16 GB
+
+| `DUCKDB_PATH`
+| Path of the database file. Must be on the `ere-data` volume, otherwise the data is lost on restart. The default is a relative path.
+| `/data/app.duckdb`
+
+| `RDF_MAPPING_PATH`
+| Path of `rdf_mapping.yaml` on the configuration volume.
+| `/app/config/rdf_mapping.yaml`
+
+| `RESOLVER_CONFIG_PATH`
+| Path of `resolver.yaml` on the configuration volume. Use the file from the release tag.
+| `/app/config/resolver.yaml`
+
+| `ERE_LOG_LEVEL`
+| Log level: `TRACE`, `DEBUG`, `INFO`, `WARNING`, `ERROR` or `CRITICAL`. Use `DEBUG` or `TRACE` only for diagnosis.
+| `INFO`
+
+| `PYSTOW_HOME`
+| Cache directory of PyStow, a library used indirectly by the ERE. Needed only with a read-only root filesystem, with a writable `/tmp`.
+| `/tmp/pystow`
+|===
+
+=== Advanced tuning
+
+These variables have defaults suitable for production; leave them unset unless you have a measured reason to change them.
+An invalid value stops the ERE at startup.
+
+[cols="3,4,3",options="header"]
+|===
+| Variable | Description | Default
+
+| `ERE_DUCKDB_STORAGE`
+| `disk` or `memory`. Keep `disk` in production: in memory mode the database and the trained model are lost on every restart.
+| `disk`
+
+| `ERE_DUCKDB_THREADS`
+| Number of database threads (positive integer).
+| DuckDB default, based on the detected CPUs
+
+| `ERE_DUCKDB_TEMP_DIR`
+| Directory where the database spills data when it reaches its memory limit. Keep it on `ere-data`, never on `/tmp`.
+| `<DUCKDB_PATH>.tmp`
+
+| `ERE_SPLINK_MODEL_PATH`
+| File where the trained matching model is saved and reloaded from on restart. Keep it on `ere-data`, never on `/tmp`.
+| `<DUCKDB_PATH>.splink_model.json`
+
+| `ERE_BATCH_TARGET_SECONDS`
+| Target processing time of one batch; the batch size adapts to recent speed. Greater than 0.
+| `2`
+
+| `ERE_BATCH_MAX_MENTIONS`
+| Maximum number of requests taken from Redis in one batch. Greater than 0.
+| `500`
+
+| `ERE_BATCH_MAX_BYTES`
+| Maximum total payload, in bytes, taken from Redis in one batch. Greater than 0.
+| `50000000`
+
+| `ERE_BATCH_LINGER_MS`
+| Milliseconds to wait for more requests when the queue empties while a batch is filling. 0 or more.
+| `250`
+|===
+
+The batch limits are independent: the first one reached ends the batch, and requests not taken stay in Redis until the next batch.
+
+[#link-curation-ui]
+== Link Curation UI
+
+The Link Curation UI reads a single variable, set on its container.
+It does not use the environment file of the ERS and the ERE.
+
+[cols="3,4,3",options="header"]
+|===
+| Variable | Description | Recommended value
+
+| `API_BACKEND_URL`
+| Address (`host:port`, without `http://`) of the Curation API, to which Nginx forwards `/api/` requests.
+It must resolve through the container's local or link-local DNS, and the Curation API or its load balancer must accept it as `Host` header.
+| `<curation-api-internal-name>:8000`
+|===
+
+[#build-arguments]
+== Build arguments
+
+Passed to the image build with `--build-arg`; they are not variables of the running containers.
+
+[cols="3,4,3",options="header"]
+|===
+| Argument | Description | Recommended value
+
+| `ENVIRONMENT` (ERS image)
+| `production` installs only runtime dependencies and removes development scripts.
+| `production`
+
+| `ENVIRONMENT` (Link Curation UI image)
+| Build mode of the web application.
+| `production`
+
+| `ERS_SCHEMA_URL` (Link Curation UI image)
+| URL from which the build downloads the Curation API OpenAPI schema.
+| the schema on the `release/1.1.0` branch of the ERS repository (default)
+|===
+
+[#not-in-production]
+== Not to be set in production
+
+The development environment files of the repositories contain variables that a production deployment does not use.
+
+[cols="3,5",options="header"]
+|===
+| Variable | Reason
+
+| `USE_MOCK_SERVICES`, `CURATION_CONFIDENCE_THRESHOLD`
+| No longer read by the ERS; remove them.
+
+| `LOG_LEVEL` (ERE)
+| Has no effect; the ERE reads `ERE_LOG_LEVEL`.
+
+| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`
+| Settings of the local FerretDB/PostgreSQL development stack; production uses `MONGO_URI`.
+
+| `VITE_APP_MAIN_API`
+| Used only to regenerate the web client during development.
+|===

@@ -176,7 +176,6 @@ Response envelope:
 }
 ----
 
-[#error-reference]
 == Re-submitting Mentions
 
 ERS identifies a mention by its triad `(source_id, request_id, entity_type)` and records a hash of its exact `content`.
@@ -191,6 +190,12 @@ A client that re-submits mentions later, for example to pick up changed placemen
 
 To follow placement changes without re-submitting, use `/refresh-bulk`; see xref:ERSArchitecture/spine-c.adoc[Spine C: Canonical assignment lookup].
 
+== Request Size
+
+ERS rejects a mention whose `content` exceeds a configured maximum size (default: 1 MiB).
+Bulk requests carry many mentions and can be far larger: any proxy, load balancer or gateway in front of the ERS REST API must accept request bodies of at least 50 MB, otherwise large bulk requests are rejected with HTTP 413 before they reach ERS.
+
+[#error-reference]
 == Error Handling
 
 All error responses use a JSON body with an `error_code` field (machine-readable) and a `message` field (human-readable explanation):

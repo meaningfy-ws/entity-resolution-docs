@@ -22,7 +22,7 @@ Before implementing an ERE, ensure the following are in place:
 * Familiarity with the xref:ERS-ERE-Contract/index.adoc[ERS-ERE Technical Contract], in particular the message types, correlation semantics, and canonical identifier derivation rule.
 
 For the reference ERE implementation, the runtime configuration (clustering thresholds, Splink model parameters, DuckDB settings) is documented in the https://github.com/OP-TED/entity-resolution-engine-basic/tree/develop/src/config[entity-resolution-engine-basic configuration README].
-The ERS-side environment variables (API ports, Redis connection, time budgets) are documented in https://github.com/OP-TED/entity-resolution-service/blob/develop/docs/configuration.md[entity-resolution-service/docs/configuration.md].
+The ERS-side environment variables (API ports, Redis connection, time budgets) are documented in xref:Installation/environment-variables.adoc[Environment Variables].
 
 === Integration Checklist
 

@@ -59,14 +59,16 @@ Alternative storage mechanisms may be used provided that the asynchronous messag
 
 The shared infrastructure is provisioned once and used by several components:
 
-* The *message queue* carries resolution requests from ERS to ERE and responses back, and broadcasts ERE outcomes across ERS replicas. It is infrastructure, not authority.
+* The *message queue* carries resolution requests from ERS to ERE and responses back, and broadcasts ERE outcomes across ERS replicas. It is infrastructure, not authority. Requests the ERE has not yet taken wait in the queue, so the queue must have enough memory for the largest expected backlog.
 * The *document store* holds EntityMention and Decision projection data for the ERS. It does not redefine clustering semantics and does not constitute an independent canonical registry.
 * The *shared configuration volume* is mounted read-only by the ERS and ERE containers and holds their configuration files.
 * The *ERE data volume* is mounted read-write by the ERE alone. It must be persistent and writable.
 
 == Infrastructure roles and concrete technologies
 
-The reference deployment maps abstract infrastructure roles to concrete technologies in order to provide a runnable baseline: Docker Engine as container runtime, docker-compose for service wiring, Nginx for web serving and reverse proxying in the Link Curation UI, Redis for asynchronous messaging and notifications, FerretDB as the ERS document store, DuckDB as the embedded ERE store, and Docker volumes for persistent file storage. An operational deployment may use a managed container platform, a managed MongoDB-compatible document store (for example Amazon DocumentDB) and shared file system volumes in their place.
+The reference deployment maps abstract infrastructure roles to concrete technologies in order to provide a runnable baseline: Docker Engine as container runtime, docker-compose for service wiring, Nginx for web serving and reverse proxying in the Link Curation UI, Redis (6.2 or newer) for asynchronous messaging and notifications, FerretDB as the ERS document store, DuckDB as the embedded ERE store, and Docker volumes for persistent file storage. An operational deployment may use a managed container platform, a managed MongoDB-compatible document store (for example Amazon DocumentDB) and shared file system volumes in their place.
+
+The concrete requirements for deploying these components are listed in xref:Installation/deployment-requirements.adoc[Deployment Requirements].
 
 These mappings are illustrative rather than mandatory. Equivalent technologies may replace them provided that exposed interfaces remain unchanged, authority boundaries remain intact, asynchronous integration semantics are preserved, and projection replacement behaviour is unaffected.
 

@@ -72,6 +72,8 @@ curl -i {ers-api-base}/health
 +
 A `200 OK` response confirms ERS is running and ready to accept resolution requests.
 
+To deploy ERSys beyond a local machine, see xref:Installation/deployment-requirements.adoc[Deployment Requirements].
+
 == Workflow 1 — Submit a Mention and Retrieve Its Cluster Identifier
 
 Submit a single entity mention and poll until the ERE returns a canonical cluster identifier.
